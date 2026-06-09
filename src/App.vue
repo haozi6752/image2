@@ -314,11 +314,12 @@ const generateImage = async (promptText) => {
       throw new Error(errMsg);
     }
 
-    if (!data || !data.data || data.data.length === 0 || !data.data[0].url) {
-      throw new Error('生图接口未返回有效的图片数据，请检查服务商通道。');
+    if (!data || !data.data || data.data.length === 0 || (!data.data[0].url && !data.data[0].b64_json)) {
+      const stringifiedData = data ? JSON.stringify(data).substring(0, 150) : '空数据';
+      throw new Error(`服务商未返回图片数据。返回内容: ${stringifiedData}`);
     }
 
-    const imageUrl = data.data[0].url;
+    const imageUrl = data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`;
 
     // 新增历史记录
     const newRecord = {
