@@ -135,16 +135,44 @@ const onFileChange = (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  if (file.size > 4 * 1024 * 1024) {
-    alert('图片大小不能超过 4MB，请上传更小的图片。');
+  // 修改大小限制为 20MB
+  if (file.size > 20 * 1024 * 1024) {
+    alert('图片大小不能超过 20MB，请上传较小的图片。');
     return;
   }
 
   const reader = new FileReader();
   reader.onload = (event) => {
-    imagePreview.value = event.target.result;
-    imageBase64.value = event.target.result;
-    emit('upload-image', imageBase64.value);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      const max_dim = 1536; // 限制最大边为 1536px，在保证清晰度的同时极大压缩传输体积，避开 Vercel 的 4.5MB Payload 限制
+
+      if (width > max_dim || height > max_dim) {
+        if (width > height) {
+          height = Math.round((height * max_dim) / width);
+          width = max_dim;
+        } else {
+          width = Math.round((width * max_dim) / height);
+          height = max_dim;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 导出为 PNG 格式以适配 GPT Image 2/DALL-E 接口规范
+      const compressedDataUrl = canvas.toDataURL('image/png');
+      
+      imagePreview.value = compressedDataUrl;
+      imageBase64.value = compressedDataUrl;
+      emit('upload-image', compressedDataUrl);
+    };
+    img.src = event.target.result;
   };
   reader.readAsDataURL(file);
 };
