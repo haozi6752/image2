@@ -70,6 +70,7 @@
       :baseURL="baseURL"
       :apiKey="apiKey"
       :model="model"
+      :useProxy="useProxy"
       @close="isSettingsOpen = false"
       @save="saveApiConfig"
     />
@@ -107,6 +108,7 @@ import Lightbox from './components/Lightbox.vue';
 const baseURL = ref('');
 const apiKey = ref('');
 const model = ref('gpt-image-2');
+const useProxy = ref(true);
 
 // UI 状态
 const sidebarVisible = ref(true);
@@ -146,6 +148,9 @@ onMounted(() => {
   apiKey.value = localStorage.getItem('api_key') || '';
   model.value = localStorage.getItem('api_model') || 'gpt-image-2';
   
+  const savedProxy = localStorage.getItem('use_proxy');
+  useProxy.value = savedProxy !== null ? JSON.parse(savedProxy) : true;
+  
   const savedSidebar = localStorage.getItem('sidebar_visible');
   sidebarVisible.value = savedSidebar !== null ? JSON.parse(savedSidebar) : true;
 
@@ -168,10 +173,12 @@ const saveApiConfig = (config) => {
   baseURL.value = config.baseURL;
   apiKey.value = config.apiKey;
   model.value = config.model;
+  useProxy.value = config.useProxy;
   
   localStorage.setItem('api_base_url', config.baseURL);
   localStorage.setItem('api_key', config.apiKey);
   localStorage.setItem('api_model', config.model);
+  localStorage.setItem('use_proxy', JSON.stringify(config.useProxy));
   
   showToastMsg({ message: '配置保存成功！', type: 'success' });
 };
@@ -250,20 +257,40 @@ const generateImage = async (promptText) => {
   const sizeString = `${genSettings.value.width}x${genSettings.value.height}`;
 
   try {
-    const response = await fetch(requestURL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey.value}`
-      },
-      body: JSON.stringify({
-        model: model.value,
-        prompt: promptText,
-        n: 1,
-        size: sizeString,
-        quality: genSettings.value.quality
-      })
-    });
+    let response;
+    if (useProxy.value) {
+      // 通过 Vercel Serverless 反向代理发送请求
+      response = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          baseURL: baseURL.value,
+          apiKey: apiKey.value,
+          model: model.value,
+          prompt: promptText,
+          size: sizeString,
+          quality: genSettings.value.quality
+        })
+      });
+    } else {
+      // 直连目标 API
+      response = await fetch(requestURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.value}`
+        },
+        body: JSON.stringify({
+          model: model.value,
+          prompt: promptText,
+          n: 1,
+          size: sizeString,
+          quality: genSettings.value.quality
+        })
+      });
+    }
 
     let data = null;
     const contentType = response.headers.get('content-type');
@@ -276,7 +303,9 @@ const generateImage = async (promptText) => {
       if (data && data.error) {
         errMsg = data.error.message || errMsg;
       } else if (response.status === 404) {
-        errMsg = `端点错误 (404)。请检查设置中的 Base URL 是否填写正确（官方推荐以 /v1 结尾）。请求地址为: ${requestURL}`;
+        errMsg = useProxy.value
+          ? `代理端点错误 (404)。请确保已部署在 Vercel 生产环境，且 Base URL 格式正确。目标地址: ${requestURL}`
+          : `端点错误 (404)。请检查设置中的 Base URL 是否填写正确（官方推荐以 /v1 结尾）。请求地址为: ${requestURL}`;
       } else if (response.status === 401) {
         errMsg = `未授权 (401)。请检查设置中的 API Key 是否正确填写且有效。`;
       } else if (response.status === 403) {

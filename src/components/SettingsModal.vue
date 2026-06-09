@@ -51,6 +51,16 @@
             />
             <span class="input-desc">例如：gpt-image-2 或 dall-e-3</span>
           </div>
+
+          <div class="form-group checkbox-group">
+            <input 
+              id="useProxy" 
+              type="checkbox" 
+              v-model="tempUseProxy" 
+              class="form-checkbox"
+            />
+            <label for="useProxy" class="checkbox-label">通过 Vercel 服务端代理请求 (解决浏览器跨域 CORS 限制)</label>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -69,7 +79,8 @@ const props = defineProps({
   isOpen: Boolean,
   baseURL: String,
   apiKey: String,
-  model: String
+  model: String,
+  useProxy: Boolean
 });
 
 const emit = defineEmits(['close', 'save']);
@@ -77,6 +88,7 @@ const emit = defineEmits(['close', 'save']);
 const tempBaseURL = ref('');
 const tempApiKey = ref('');
 const tempModel = ref('');
+const tempUseProxy = ref(true);
 const showKey = ref(false);
 
 // 监听打开状态，每次打开同步临时变量
@@ -85,6 +97,7 @@ watch(() => props.isOpen, (newVal) => {
     tempBaseURL.value = props.baseURL;
     tempApiKey.value = props.apiKey;
     tempModel.value = props.model;
+    tempUseProxy.value = props.useProxy;
   }
 });
 
@@ -96,7 +109,8 @@ const save = () => {
   emit('save', {
     baseURL: tempBaseURL.value.trim(),
     apiKey: tempApiKey.value.trim(),
-    model: tempModel.value.trim() || 'gpt-image-2'
+    model: tempModel.value.trim() || 'gpt-image-2',
+    useProxy: tempUseProxy.value
   });
   close();
 };
@@ -274,5 +288,27 @@ const save = () => {
 
 .fade-leave-to .modal-content {
   transform: scale(0.95) translateY(10px);
+}
+
+.checkbox-group {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+.form-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-color);
+}
+
+.checkbox-label {
+  font-size: 0.8rem !important;
+  color: var(--text-primary) !important;
+  cursor: pointer;
+  user-select: none;
 }
 </style>
