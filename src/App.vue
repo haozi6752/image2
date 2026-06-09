@@ -231,7 +231,22 @@ const generateImage = async (promptText) => {
   isGenerating.value = true;
   showToastMsg({ message: '图像生成请求已提交，正在等待排队渲染...', type: 'info' });
 
-  const requestURL = `${baseURL.value.replace(/\/$/, '')}/images/generations`;
+  const cleanBase = baseURL.value.replace(/\/$/, '');
+  // 智能推导正确的端点链接
+  let requestURL = cleanBase;
+  if (cleanBase.endsWith('/images/generations')) {
+    requestURL = cleanBase;
+  } else if (cleanBase.endsWith('/v1')) {
+    requestURL = `${cleanBase}/images/generations`;
+  } else {
+    // 如果没有包含 /v1，但有其他中转路径，这里做兼容
+    if (!cleanBase.includes('/v1') && !cleanBase.includes('/v1/')) {
+      requestURL = `${cleanBase}/v1/images/generations`;
+    } else {
+      requestURL = `${cleanBase}/images/generations`;
+    }
+  }
+
   const sizeString = `${genSettings.value.width}x${genSettings.value.height}`;
 
   try {
@@ -250,15 +265,28 @@ const generateImage = async (promptText) => {
       })
     });
 
-    const data = await response.json();
+    let data = null;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    }
 
     if (!response.ok) {
-      const errMsg = data.error?.message || `生图接口返回错误 (状态码 ${response.status})`;
+      let errMsg = `生图接口返回错误 (状态码 ${response.status})`;
+      if (data && data.error) {
+        errMsg = data.error.message || errMsg;
+      } else if (response.status === 404) {
+        errMsg = `端点错误 (404)。请检查设置中的 Base URL 是否填写正确（官方推荐以 /v1 结尾）。请求地址为: ${requestURL}`;
+      } else if (response.status === 401) {
+        errMsg = `未授权 (401)。请检查设置中的 API Key 是否正确填写且有效。`;
+      } else if (response.status === 403) {
+        errMsg = `拒绝访问 (403)。GPT Image 2 模型可能需要您的 API 组织通过认证，或该 API 密钥没有该模型的使用权限。`;
+      }
       throw new Error(errMsg);
     }
 
-    if (!data.data || data.data.length === 0 || !data.data[0].url) {
-      throw new Error('生图接口未返回有效的图片链接，请检查通道是否畅通。');
+    if (!data || !data.data || data.data.length === 0 || !data.data[0].url) {
+      throw new Error('生图接口未返回有效的图片数据，请检查服务商通道。');
     }
 
     const imageUrl = data.data[0].url;
