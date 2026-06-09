@@ -59,6 +59,7 @@
             ref="promptInputRef"
             :isGenerating="isGenerating" 
             @generate="generateImage"
+            @upload-image="handleUploadImage"
           />
         </div>
       </div>
@@ -109,6 +110,7 @@ const baseURL = ref('');
 const apiKey = ref('');
 const model = ref('gpt-image-2');
 const useProxy = ref(true);
+const uploadedImageB64 = ref('');
 
 // UI 状态
 const sidebarVisible = ref(true);
@@ -166,6 +168,11 @@ onMounted(() => {
 // 处理生图设置的变更
 const handleSettingsChange = (newSettings) => {
   genSettings.value = newSettings;
+};
+
+// 处理参考图上传
+const handleUploadImage = (base64) => {
+  uploadedImageB64.value = base64;
 };
 
 // 保存 API 参数
@@ -238,19 +245,23 @@ const generateImage = async (promptText) => {
   isGenerating.value = true;
   showToastMsg({ message: '图像生成请求已提交，正在等待排队渲染...', type: 'info' });
 
+  const isEditMode = !!uploadedImageB64.value;
+  const targetPath = isEditMode ? '/images/edits' : '/images/generations';
+
   const cleanBase = baseURL.value.replace(/\/$/, '');
   // 智能推导正确的端点链接
   let requestURL = cleanBase;
-  if (cleanBase.endsWith('/images/generations')) {
+  if (cleanBase.endsWith(targetPath)) {
     requestURL = cleanBase;
   } else if (cleanBase.endsWith('/v1')) {
-    requestURL = `${cleanBase}/images/generations`;
+    requestURL = `${cleanBase}${targetPath}`;
   } else {
-    // 如果没有包含 /v1，但有其他中转路径，这里做兼容
-    if (!cleanBase.includes('/v1') && !cleanBase.includes('/v1/')) {
-      requestURL = `${cleanBase}/v1/images/generations`;
+    if (cleanBase.includes('/images/')) {
+      requestURL = cleanBase.replace(/\/images\/(generations|edits|variations)$/, targetPath);
+    } else if (!cleanBase.includes('/v1') && !cleanBase.includes('/v1/')) {
+      requestURL = `${cleanBase}/v1${targetPath}`;
     } else {
-      requestURL = `${cleanBase}/images/generations`;
+      requestURL = `${cleanBase}${targetPath}`;
     }
   }
 
@@ -271,25 +282,51 @@ const generateImage = async (promptText) => {
           model: model.value,
           prompt: promptText,
           size: sizeString,
-          quality: genSettings.value.quality
+          quality: genSettings.value.quality,
+          imageB64: uploadedImageB64.value || undefined
         })
       });
     } else {
       // 直连目标 API
-      response = await fetch(requestURL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey.value}`
-        },
-        body: JSON.stringify({
-          model: model.value,
-          prompt: promptText,
-          n: 1,
-          size: sizeString,
-          quality: genSettings.value.quality
-        })
-      });
+      if (isEditMode) {
+        // 图生图直连使用 FormData 传输
+        const formData = new FormData();
+        const blobRes = await fetch(uploadedImageB64.value);
+        const blob = await blobRes.blob();
+        
+        formData.append('image', blob, 'image.png');
+        formData.append('prompt', promptText);
+        formData.append('model', model.value);
+        formData.append('size', sizeString);
+        
+        if (genSettings.value.quality) {
+          formData.append('quality', genSettings.value.quality);
+        }
+
+        response = await fetch(requestURL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey.value}`
+          },
+          body: formData
+        });
+      } else {
+        // 文生图直连使用 JSON 格式
+        response = await fetch(requestURL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey.value}`
+          },
+          body: JSON.stringify({
+            model: model.value,
+            prompt: promptText,
+            n: 1,
+            size: sizeString,
+            quality: genSettings.value.quality
+          })
+        });
+      }
     }
 
     let data = null;
@@ -320,6 +357,12 @@ const generateImage = async (promptText) => {
     }
 
     const imageUrl = data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`;
+
+    // 成功后清除参考图上传状态
+    if (promptInputRef.value) {
+      promptInputRef.value.clearUploadedImage();
+    }
+    uploadedImageB64.value = '';
 
     // 新增历史记录
     const newRecord = {

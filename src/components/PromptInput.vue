@@ -2,13 +2,42 @@
   <div 
     class="prompt-input-container" 
     :class="{ 
-      'focused': isFocused || prompt.trim().length > 0, 
+      'focused': isFocused || prompt.trim().length > 0 || !!imagePreview, 
       'generating': isGenerating 
     }"
   >
     <div class="input-panel glass-panel">
+      <!-- 图生图：参考图片预览区 -->
+      <div v-if="imagePreview" class="upload-preview-area">
+        <div class="preview-card glass-panel">
+          <img :src="imagePreview" class="preview-img" />
+          <button class="remove-preview-btn" @click="clearUploadedImage" title="移除参考图" :disabled="isGenerating">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+          <div class="preview-badge">已附加参考图</div>
+        </div>
+      </div>
+
       <!-- 文本输入区 -->
       <div class="input-row">
+        <!-- 上传图片触发按钮 -->
+        <button 
+          class="upload-trigger-btn"
+          :class="{ 'has-image': !!imagePreview }"
+          @click="triggerUpload"
+          :disabled="isGenerating"
+          title="上传参考图 (图生图)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+        </button>
+        <input 
+          type="file" 
+          ref="fileInputRef" 
+          style="display: none" 
+          accept="image/png, image/jpeg, image/webp" 
+          @change="onFileChange" 
+        />
+
         <textarea
           ref="textareaRef"
           v-model="prompt"
@@ -33,7 +62,7 @@
 
         <!-- 随机灵感 -->
         <button 
-          v-if="!isGenerating && (!isFocused && prompt.length === 0)" 
+          v-if="!isGenerating && (!isFocused && prompt.length === 0 && !imagePreview)" 
           class="random-btn" 
           @click="getRandomPrompt"
           title="随机灵感"
@@ -48,7 +77,7 @@
           :disabled="prompt.trim().length === 0 || isGenerating"
           @click="submit"
         >
-          <span v-if="!isGenerating">生成图片</span>
+          <span v-if="!isGenerating">{{ imagePreview ? '以图生图' : '生成图片' }}</span>
           <span v-else class="generating-text">
             <svg class="spinner" viewBox="0 0 50 50">
               <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
@@ -86,11 +115,48 @@ const props = defineProps({
   isGenerating: Boolean
 });
 
-const emit = defineEmits(['generate']);
+const emit = defineEmits(['generate', 'upload-image']);
 
 const prompt = ref('');
 const isFocused = ref(false);
 const textareaRef = ref(null);
+
+// 图生图状态
+const fileInputRef = ref(null);
+const imagePreview = ref('');
+const imageBase64 = ref('');
+
+const triggerUpload = () => {
+  if (props.isGenerating) return;
+  fileInputRef.value?.click();
+};
+
+const onFileChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (file.size > 4 * 1024 * 1024) {
+    alert('图片大小不能超过 4MB，请上传更小的图片。');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    imagePreview.value = event.target.result;
+    imageBase64.value = event.target.result;
+    emit('upload-image', imageBase64.value);
+  };
+  reader.readAsDataURL(file);
+};
+
+const clearUploadedImage = () => {
+  imagePreview.value = '';
+  imageBase64.value = '';
+  if (fileInputRef.value) {
+    fileInputRef.value.value = '';
+  }
+  emit('upload-image', '');
+};
 
 // 随机灵感词池
 const promptPool = [
@@ -142,9 +208,9 @@ const onFocus = () => {
 };
 
 const onBlur = () => {
-  // 如果输入框没有内容，失焦后返回收缩状态
+  // 如果输入框没有内容且没有图片，失焦后返回收缩状态
   setTimeout(() => {
-    if (prompt.value.trim().length === 0) {
+    if (prompt.value.trim().length === 0 && !imagePreview.value) {
       isFocused.value = false;
     }
   }, 200);
@@ -152,7 +218,9 @@ const onBlur = () => {
 
 const clearPrompt = () => {
   prompt.value = '';
-  isFocused.value = false;
+  if (!imagePreview.value) {
+    isFocused.value = false;
+  }
   adjustHeight();
 };
 
@@ -169,6 +237,11 @@ const submit = () => {
   emit('generate', prompt.value.trim());
   textareaRef.value?.blur();
 };
+
+defineExpose({
+  clearUploadedImage,
+  clearPrompt
+});
 
 const adjustHeight = () => {
   nextTick(() => {
@@ -399,5 +472,94 @@ onMounted(() => {
 
 .refresh-suggestions-btn:hover {
   color: var(--text-primary);
+}
+
+/* 图生图上传与预览样式 */
+.upload-trigger-btn {
+  color: var(--text-secondary);
+  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  transition: var(--transition-smooth);
+}
+
+.upload-trigger-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.upload-trigger-btn.has-image {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.upload-preview-area {
+  display: flex;
+  margin-bottom: 12px;
+  animation: slideDown 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.preview-card {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-preview-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(6, 9, 19, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+  backdrop-filter: blur(4px);
+  z-index: 5;
+}
+
+.remove-preview-btn:hover {
+  background: var(--color-error);
+  transform: scale(1.1);
+}
+
+.preview-badge {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(6, 9, 19, 0.75);
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+  text-align: center;
+  padding: 2px 0;
+  font-weight: 500;
+  backdrop-filter: blur(2px);
+  white-space: nowrap;
 }
 </style>
