@@ -103,6 +103,32 @@
           </button>
         </div>
       </div>
+
+      <!-- 个性化配置 -->
+      <div class="setting-group personalization-group">
+        <div class="personal-header">
+          <label class="group-label">个性化配置</label>
+          <div class="toggle-wrapper">
+            <input 
+              type="checkbox" 
+              id="personalToggle" 
+              v-model="usePersonalPrompt" 
+              @change="emitSettings"
+              class="toggle-checkbox"
+            />
+            <label for="personalToggle" class="toggle-label"></label>
+          </div>
+        </div>
+        <textarea
+          v-model="personalPrompt"
+          @input="emitSettings"
+          :disabled="!usePersonalPrompt"
+          class="personal-textarea"
+          placeholder="预处理指令 (第一段)..."
+          rows="3"
+        ></textarea>
+        <span class="personal-desc">开启后，系统将在生图前将此内容与您的输入框内容通过“换行”拼接。</span>
+      </div>
     </div>
   </div>
 </template>
@@ -147,6 +173,8 @@ const currentLevel = ref('1k');
 const width = ref(1024);
 const height = ref(1024);
 const quality = ref('standard'); // standard / hd
+const usePersonalPrompt = ref(false);
+const personalPrompt = ref('');
 
 const isPixelLimitExceeded = computed(() => {
   const total = width.value * height.value;
@@ -247,11 +275,16 @@ const onSizeInput = (changedAttr) => {
 
 // 发送更新配置
 const emitSettings = () => {
+  localStorage.setItem('use_personal_prompt', JSON.stringify(usePersonalPrompt.value));
+  localStorage.setItem('personal_prompt', personalPrompt.value);
+
   emit('change-settings', {
     width: width.value,
     height: height.value,
     quality: quality.value,
-    ratio: currentRatio.value
+    ratio: currentRatio.value,
+    usePersonalPrompt: usePersonalPrompt.value,
+    personalPrompt: personalPrompt.value
   });
 };
 
@@ -273,6 +306,8 @@ const getRatioStyle = (ratioStr) => {
 
 // 初始化
 onMounted(() => {
+  usePersonalPrompt.value = JSON.parse(localStorage.getItem('use_personal_prompt') || 'false');
+  personalPrompt.value = localStorage.getItem('personal_prompt') || '';
   emitSettings();
 });
 </script>
@@ -545,5 +580,101 @@ onMounted(() => {
   background: rgba(99, 102, 241, 0.1);
   border-color: var(--accent-color);
   color: var(--text-primary);
+}
+
+/* 个性化配置板块样式 */
+.personalization-group {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.personal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.personal-textarea {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 70px;
+  max-height: 150px;
+  outline: none;
+  transition: var(--transition-smooth);
+}
+
+.personal-textarea:focus:not(:disabled) {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.personal-textarea:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.personal-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* 自定义 Toggle 开关 */
+.toggle-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+
+.toggle-checkbox {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-label {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.08);
+  transition: .3s;
+  border-radius: 99px;
+  border: 1px solid var(--border-color);
+}
+
+.toggle-label:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-secondary);
+  transition: .3s;
+  border-radius: 50%;
+}
+
+.toggle-checkbox:checked + .toggle-label {
+  background: var(--primary-gradient);
+  border-color: transparent;
+}
+
+.toggle-checkbox:checked + .toggle-label:before {
+  transform: translateX(16px);
+  background-color: #fff;
 }
 </style>

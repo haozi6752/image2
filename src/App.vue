@@ -111,6 +111,8 @@ const apiKey = ref('');
 const model = ref('gpt-image-2');
 const useProxy = ref(true);
 const uploadedImageB64 = ref('');
+const usePersonalPrompt = ref(false);
+const personalPrompt = ref('');
 
 // UI 状态
 const sidebarVisible = ref(true);
@@ -168,6 +170,8 @@ onMounted(() => {
 // 处理生图设置的变更
 const handleSettingsChange = (newSettings) => {
   genSettings.value = newSettings;
+  usePersonalPrompt.value = newSettings.usePersonalPrompt || false;
+  personalPrompt.value = newSettings.personalPrompt || '';
 };
 
 // 处理参考图上传
@@ -245,6 +249,12 @@ const generateImage = async (promptText) => {
   isGenerating.value = true;
   showToastMsg({ message: '图像生成请求已提交，正在等待排队渲染...', type: 'info' });
 
+  // 拼接个性化配置的前缀提示词
+  let finalPrompt = promptText;
+  if (usePersonalPrompt.value && personalPrompt.value.trim()) {
+    finalPrompt = `${personalPrompt.value.trim()}\n${promptText}`;
+  }
+
   const isEditMode = !!uploadedImageB64.value;
   const targetPath = isEditMode ? '/images/edits' : '/images/generations';
 
@@ -280,7 +290,7 @@ const generateImage = async (promptText) => {
           baseURL: baseURL.value,
           apiKey: apiKey.value,
           model: model.value,
-          prompt: promptText,
+          prompt: finalPrompt,
           size: sizeString,
           quality: genSettings.value.quality,
           imageB64: uploadedImageB64.value || undefined
@@ -295,7 +305,7 @@ const generateImage = async (promptText) => {
         const blob = await blobRes.blob();
         
         formData.append('image', blob, 'image.png');
-        formData.append('prompt', promptText);
+        formData.append('prompt', finalPrompt);
         formData.append('model', model.value);
         formData.append('size', sizeString);
         
@@ -320,7 +330,7 @@ const generateImage = async (promptText) => {
           },
           body: JSON.stringify({
             model: model.value,
-            prompt: promptText,
+            prompt: finalPrompt,
             n: 1,
             size: sizeString,
             quality: genSettings.value.quality
@@ -368,7 +378,7 @@ const generateImage = async (promptText) => {
     const newRecord = {
       id: Date.now(),
       url: imageUrl,
-      prompt: promptText,
+      prompt: finalPrompt,
       width: genSettings.value.width,
       height: genSettings.value.height,
       model: model.value,
