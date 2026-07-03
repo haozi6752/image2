@@ -13,6 +13,18 @@
 
       <!-- 右上角控制 -->
       <div class="header-controls">
+        <!-- 方案快捷切换 -->
+        <div class="profile-quick-switch" v-if="apiProfiles.length > 0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="profile-icon"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          <select 
+            v-model="activeProfileId" 
+            @change="handleProfileSwitch"
+            class="profile-select"
+          >
+            <option v-for="p in apiProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </div>
+
         <div class="api-status-badge" :class="{ 'configured': isApiConfigured }">
           <span class="status-dot"></span>
           <span class="status-text">{{ isApiConfigured ? 'API 已配置' : 'API 未设置' }}</span>
@@ -68,12 +80,10 @@
     <!-- API 设置弹窗 -->
     <SettingsModal 
       :isOpen="isSettingsOpen"
-      :baseURL="baseURL"
-      :apiKey="apiKey"
-      :model="model"
-      :useProxy="useProxy"
+      :profiles="apiProfiles"
+      :activeProfileId="activeProfileId"
       @close="isSettingsOpen = false"
-      @save="saveApiConfig"
+      @save="saveApiProfiles"
     />
 
     <!-- 全屏大图预览灯箱 -->
@@ -104,12 +114,20 @@ import SettingsModal from './components/SettingsModal.vue';
 import PromptInput from './components/PromptInput.vue';
 import Gallery from './components/Gallery.vue';
 import Lightbox from './components/Lightbox.vue';
+import { cacheImage, getCachedImageUrl, deleteCachedImage } from './utils/db';
 
-// API 配置状态
-const baseURL = ref('');
-const apiKey = ref('');
-const model = ref('gpt-image-2');
-const useProxy = ref(true);
+// API 配置与多方案管理状态
+const apiProfiles = ref([]);
+const activeProfileId = ref('');
+
+const activeProfile = computed(() => {
+  return apiProfiles.value.find(p => p.id === activeProfileId.value) || null;
+});
+
+const isApiConfigured = computed(() => {
+  return activeProfile.value?.apiKey?.trim()?.length > 0;
+});
+
 const uploadedImageB64 = ref('');
 const usePersonalPrompt = ref(false);
 const personalPrompt = ref('');
@@ -125,7 +143,9 @@ const activePreviewItem = ref({});
 const genSettings = ref({
   width: 1024,
   height: 1024,
-  quality: 'standard',
+  quality: 'auto',
+  outputFormat: 'png',
+  outputCompression: 80,
   ratio: '1:1'
 });
 
@@ -142,30 +162,79 @@ const toast = ref({
 // PromptInput 实例引用，用于重填词
 const promptInputRef = ref(null);
 
-const isApiConfigured = computed(() => {
-  return apiKey.value.trim().length > 0;
-});
+// 保存方案数据至 localStorage
+const saveProfilesToStorage = () => {
+  localStorage.setItem('api_profiles', JSON.stringify(apiProfiles.value));
+  localStorage.setItem('active_profile_id', activeProfileId.value);
+};
 
-// 初始化加载配置
+// 保存 API 方案并提示
+const saveApiProfiles = ({ profiles, activeProfileId: selectedId }) => {
+  apiProfiles.value = profiles;
+  activeProfileId.value = selectedId;
+  saveProfilesToStorage();
+  showToastMsg({ message: 'API 方案保存成功！', type: 'success' });
+};
+
+// 头部快捷切换方案
+const handleProfileSwitch = () => {
+  saveProfilesToStorage();
+  showToastMsg({ message: `已快捷切换至：${activeProfile.value?.name}`, type: 'success' });
+};
+
+// 初始化加载配置与离线图缓存解析
 onMounted(() => {
-  baseURL.value = localStorage.getItem('api_base_url') || 'https://api.openai.com/v1';
-  apiKey.value = localStorage.getItem('api_key') || '';
-  model.value = localStorage.getItem('api_model') || 'gpt-image-2';
+  const savedProfiles = localStorage.getItem('api_profiles');
+  const savedActiveId = localStorage.getItem('active_profile_id');
   
-  const savedProxy = localStorage.getItem('use_proxy');
-  useProxy.value = savedProxy !== null ? JSON.parse(savedProxy) : true;
+  if (savedProfiles) {
+    apiProfiles.value = JSON.parse(savedProfiles);
+    activeProfileId.value = savedActiveId || apiProfiles.value[0]?.id || '';
+  } else {
+    // 平滑向后兼容迁移老数据
+    const oldBase = localStorage.getItem('api_base_url') || 'https://api.openai.com/v1';
+    const oldKey = localStorage.getItem('api_key') || '';
+    const oldModel = localStorage.getItem('api_model') || 'gpt-image-2';
+    const oldProxy = localStorage.getItem('use_proxy') !== null ? JSON.parse(localStorage.getItem('use_proxy')) : true;
+    
+    const defaultProfile = {
+      id: 'default',
+      name: '默认方案',
+      baseURL: oldBase,
+      apiKey: oldKey,
+      model: oldModel,
+      useProxy: oldProxy
+    };
+    apiProfiles.value = [defaultProfile];
+    activeProfileId.value = 'default';
+    saveProfilesToStorage();
+  }
   
   const savedSidebar = localStorage.getItem('sidebar_visible');
   sidebarVisible.value = savedSidebar !== null ? JSON.parse(savedSidebar) : true;
 
   try {
     const savedHistory = localStorage.getItem('image_history');
-    historyList.value = savedHistory ? JSON.parse(savedHistory) : [];
+    const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
+    historyList.value = parsedHistory;
+    // 异步加载 IndexedDB 图片缓存
+    resolveOfflineUrls();
   } catch (e) {
     console.error('Failed to parse history', e);
     historyList.value = [];
   }
 });
+
+// 异步解析本地 IndexedDB 缓存
+const resolveOfflineUrls = async () => {
+  for (let i = 0; i < historyList.value.length; i++) {
+    const item = historyList.value[i];
+    const localUrl = await getCachedImageUrl(item.id, item.url);
+    if (localUrl !== item.url) {
+      item.url = localUrl;
+    }
+  }
+};
 
 // 处理生图设置的变更
 const handleSettingsChange = (newSettings) => {
@@ -177,21 +246,6 @@ const handleSettingsChange = (newSettings) => {
 // 处理参考图上传
 const handleUploadImage = (base64) => {
   uploadedImageB64.value = base64;
-};
-
-// 保存 API 参数
-const saveApiConfig = (config) => {
-  baseURL.value = config.baseURL;
-  apiKey.value = config.apiKey;
-  model.value = config.model;
-  useProxy.value = config.useProxy;
-  
-  localStorage.setItem('api_base_url', config.baseURL);
-  localStorage.setItem('api_key', config.apiKey);
-  localStorage.setItem('api_model', config.model);
-  localStorage.setItem('use_proxy', JSON.stringify(config.useProxy));
-  
-  showToastMsg({ message: '配置保存成功！', type: 'success' });
 };
 
 // 监听侧边栏可见度
@@ -210,10 +264,15 @@ const handleReusePrompt = (promptText) => {
   }
 };
 
-// 删除作品
-const handleDeleteImage = (id) => {
+// 删除作品与对应的本地缓存
+const handleDeleteImage = async (id) => {
+  const item = historyList.value.find(h => h.id === id);
+  if (item && item.url.startsWith('blob:')) {
+    URL.revokeObjectURL(item.url);
+  }
   historyList.value = historyList.value.filter(item => item.id !== id);
   localStorage.setItem('image_history', JSON.stringify(historyList.value));
+  await deleteCachedImage(id);
   showToastMsg({ message: '生图记录已删除', type: 'info' });
 };
 
@@ -241,7 +300,7 @@ const showToastMsg = ({ message, type = 'info' }) => {
 // 核心功能：调用 API 进行生图
 const generateImage = async (promptText) => {
   if (!isApiConfigured.value) {
-    showToastMsg({ message: '请先点击右上角设置，配置 API Key！', type: 'error' });
+    showToastMsg({ message: '请先配置有效的 API Key！', type: 'error' });
     isSettingsOpen.value = true;
     return;
   }
@@ -258,7 +317,9 @@ const generateImage = async (promptText) => {
   const isEditMode = !!uploadedImageB64.value;
   const targetPath = isEditMode ? '/images/edits' : '/images/generations';
 
-  const cleanBase = baseURL.value.replace(/\/$/, '');
+  const currentConfig = activeProfile.value;
+  const cleanBase = currentConfig.baseURL.replace(/\/$/, '');
+  
   // 智能推导正确的端点链接
   let requestURL = cleanBase;
   if (cleanBase.endsWith(targetPath)) {
@@ -279,7 +340,7 @@ const generateImage = async (promptText) => {
 
   try {
     let response;
-    if (useProxy.value) {
+    if (currentConfig.useProxy) {
       // 通过 Vercel Serverless 反向代理发送请求
       response = await fetch('/api/proxy', {
         method: 'POST',
@@ -287,12 +348,14 @@ const generateImage = async (promptText) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          baseURL: baseURL.value,
-          apiKey: apiKey.value,
-          model: model.value,
+          baseURL: currentConfig.baseURL,
+          apiKey: currentConfig.apiKey,
+          model: currentConfig.model,
           prompt: finalPrompt,
           size: sizeString,
           quality: genSettings.value.quality,
+          output_format: genSettings.value.outputFormat,
+          output_compression: genSettings.value.outputCompression,
           imageB64: uploadedImageB64.value || undefined
         })
       });
@@ -306,17 +369,23 @@ const generateImage = async (promptText) => {
         
         formData.append('image', blob, 'image.png');
         formData.append('prompt', finalPrompt);
-        formData.append('model', model.value);
+        formData.append('model', currentConfig.model);
         formData.append('size', sizeString);
         
         if (genSettings.value.quality) {
           formData.append('quality', genSettings.value.quality);
         }
+        if (genSettings.value.outputFormat) {
+          formData.append('output_format', genSettings.value.outputFormat);
+        }
+        if (genSettings.value.outputCompression !== undefined) {
+          formData.append('output_compression', String(genSettings.value.outputCompression));
+        }
 
         response = await fetch(requestURL, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${apiKey.value}`
+            'Authorization': `Bearer ${currentConfig.apiKey}`
           },
           body: formData
         });
@@ -326,14 +395,16 @@ const generateImage = async (promptText) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey.value}`
+            'Authorization': `Bearer ${currentConfig.apiKey}`
           },
           body: JSON.stringify({
-            model: model.value,
+            model: currentConfig.model,
             prompt: finalPrompt,
             n: 1,
             size: sizeString,
-            quality: genSettings.value.quality
+            quality: genSettings.value.quality,
+            ...(genSettings.value.outputFormat ? { output_format: genSettings.value.outputFormat } : {}),
+            ...(genSettings.value.outputCompression !== undefined ? { output_compression: Number(genSettings.value.outputCompression) } : {})
           })
         });
       }
@@ -350,7 +421,7 @@ const generateImage = async (promptText) => {
       if (data && data.error) {
         errMsg = data.error.message || errMsg;
       } else if (response.status === 404) {
-        errMsg = useProxy.value
+        errMsg = currentConfig.useProxy
           ? `代理端点错误 (404)。请确保已部署在 Vercel 生产环境，且 Base URL 格式正确。目标地址: ${requestURL}`
           : `端点错误 (404)。请检查设置中的 Base URL 是否填写正确（官方推荐以 /v1 结尾）。请求地址为: ${requestURL}`;
       } else if (response.status === 401) {
@@ -374,19 +445,32 @@ const generateImage = async (promptText) => {
     }
     uploadedImageB64.value = '';
 
-    // 新增历史记录
+    const recordId = Date.now();
+
+    // 新增历史记录，保存最初的远端链接作为 fallback
     const newRecord = {
-      id: Date.now(),
+      id: recordId,
       url: imageUrl,
       prompt: finalPrompt,
       width: genSettings.value.width,
       height: genSettings.value.height,
-      model: model.value,
-      timestamp: Date.now()
+      model: currentConfig.model,
+      timestamp: recordId
     };
 
     historyList.value.unshift(newRecord);
     localStorage.setItem('image_history', JSON.stringify(historyList.value));
+
+    // 触发后台 IndexedDB 离线缓存
+    cacheImage(recordId, imageUrl).then(async (success) => {
+      if (success) {
+        const localUrl = await getCachedImageUrl(recordId, imageUrl);
+        const item = historyList.value.find(h => h.id === recordId);
+        if (item) {
+          item.url = localUrl;
+        }
+      }
+    });
 
     showToastMsg({ message: '绘制大功告成！画面已呈现在相册中。', type: 'success' });
 
@@ -686,5 +770,46 @@ const generateImage = async (promptText) => {
 .slide-toast-leave-to {
   transform: translate(-50%, -20px);
   opacity: 0;
+}
+
+/* 方案快捷切换下拉框样式 */
+.profile-quick-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+  cursor: pointer;
+}
+
+.profile-quick-switch:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.profile-icon {
+  color: var(--accent-color);
+  opacity: 0.8;
+}
+
+.profile-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  padding-right: 4px;
+}
+
+.profile-select option {
+  background: #0f172a;
+  color: var(--text-primary);
 }
 </style>

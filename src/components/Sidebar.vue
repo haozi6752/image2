@@ -83,26 +83,55 @@
         </div>
       </div>
 
-      <!-- 其它参数：生图模型、生成质量等 -->
+      <!-- 其它参数：生成质量、输出格式、输出压缩率等 -->
       <div class="setting-group">
         <label class="group-label">生成质量 (Quality)</label>
-        <div class="quality-selector">
+        <div class="quality-grid">
           <button 
-            class="quality-btn" 
-            :class="{ active: quality === 'standard' }"
-            @click="updateQuality('standard')"
+            v-for="q in ['auto', 'low', 'medium', 'high']"
+            :key="q"
+            class="quality-btn-new" 
+            :class="{ active: quality === q }"
+            @click="updateQuality(q)"
           >
-            标准 (Standard)
-          </button>
-          <button 
-            class="quality-btn" 
-            :class="{ active: quality === 'hd' }"
-            @click="updateQuality('hd')"
-          >
-            高清 (HD)
+            {{ q.toUpperCase() }}
           </button>
         </div>
       </div>
+
+      <div class="setting-group">
+        <label class="group-label">输出格式 (Output Format)</label>
+        <div class="format-grid">
+          <button 
+            v-for="f in ['png', 'jpeg', 'webp']"
+            :key="f"
+            class="format-btn" 
+            :class="{ active: outputFormat === f }"
+            @click="updateOutputFormat(f)"
+          >
+            {{ f.toUpperCase() }}
+          </button>
+        </div>
+      </div>
+
+      <div class="setting-group" v-show="outputFormat === 'jpeg' || outputFormat === 'webp'">
+        <div class="size-header">
+          <label class="group-label">图像压缩率 (Compression: {{ outputCompression }}%)</label>
+        </div>
+        <div class="slider-container">
+          <input 
+            type="range" 
+            min="0" 
+            max="100" 
+            step="1" 
+            v-model.number="outputCompression"
+            @input="emitSettings"
+            class="custom-slider"
+          />
+        </div>
+        <span class="param-desc">数值越低文件越小，但会引入更多压缩噪点，默认 80。</span>
+      </div>
+
 
       <!-- 个性化配置 -->
       <div class="setting-group personalization-group">
@@ -172,7 +201,9 @@ const currentRatio = ref('1:1');
 const currentLevel = ref('1k');
 const width = ref(1024);
 const height = ref(1024);
-const quality = ref('standard'); // standard / hd
+const quality = ref('auto'); // auto / low / medium / high
+const outputFormat = ref('png'); // png / jpeg / webp
+const outputCompression = ref(80); // 0-100
 const usePersonalPrompt = ref(false);
 const personalPrompt = ref('');
 
@@ -252,6 +283,11 @@ const updateQuality = (val) => {
   emitSettings();
 };
 
+const updateOutputFormat = (val) => {
+  outputFormat.value = val;
+  emitSettings();
+};
+
 const resetToPreset = () => {
   const { w, h } = calculateSize(currentRatio.value, currentLevel.value);
   width.value = w;
@@ -277,11 +313,16 @@ const onSizeInput = (changedAttr) => {
 const emitSettings = () => {
   localStorage.setItem('use_personal_prompt', JSON.stringify(usePersonalPrompt.value));
   localStorage.setItem('personal_prompt', personalPrompt.value);
+  localStorage.setItem('gen_quality', quality.value);
+  localStorage.setItem('gen_output_format', outputFormat.value);
+  localStorage.setItem('gen_output_compression', String(outputCompression.value));
 
   emit('change-settings', {
     width: width.value,
     height: height.value,
     quality: quality.value,
+    outputFormat: outputFormat.value,
+    outputCompression: outputCompression.value,
     ratio: currentRatio.value,
     usePersonalPrompt: usePersonalPrompt.value,
     personalPrompt: personalPrompt.value
@@ -308,6 +349,9 @@ const getRatioStyle = (ratioStr) => {
 onMounted(() => {
   usePersonalPrompt.value = JSON.parse(localStorage.getItem('use_personal_prompt') || 'false');
   personalPrompt.value = localStorage.getItem('personal_prompt') || '';
+  quality.value = localStorage.getItem('gen_quality') || 'auto';
+  outputFormat.value = localStorage.getItem('gen_output_format') || 'png';
+  outputCompression.value = Number(localStorage.getItem('gen_output_compression') || '80');
   emitSettings();
 });
 </script>
@@ -560,26 +604,51 @@ onMounted(() => {
   color: var(--color-error);
 }
 
-/* 质量选择 */
-.quality-selector {
-  display: flex;
+/* 质量与格式选择器网格 */
+.quality-grid, .format-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
-.quality-btn {
-  flex: 1;
+.format-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.quality-btn-new, .format-btn {
   font-size: 0.75rem;
-  padding: 10px;
+  padding: 10px 4px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
+  text-align: center;
+  transition: var(--transition-fast);
 }
 
-.quality-btn.active {
+.quality-btn-new:hover, .format-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.quality-btn-new.active, .format-btn.active {
   background: rgba(99, 102, 241, 0.1);
   border-color: var(--accent-color);
   color: var(--text-primary);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.param-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.slider-container {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
 }
 
 /* 个性化配置板块样式 */

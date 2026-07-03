@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { baseURL, apiKey, model, prompt, size, quality, imageB64 } = req.body;
+  const { baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64 } = req.body;
 
   if (!baseURL || !apiKey || !prompt) {
     res.status(400).json({ error: { message: '缺少必要参数 (baseURL, apiKey 或 prompt)' } });
@@ -84,6 +84,12 @@ export default async function handler(req, res) {
       if (quality) {
         formData.append('quality', quality);
       }
+      if (output_format) {
+        formData.append('output_format', output_format);
+      }
+      if (output_compression !== undefined) {
+        formData.append('output_compression', String(output_compression));
+      }
 
       fetchOptions.body = formData;
       // 注意：使用 FormData 时，不需要手动设置 Content-Type 头，
@@ -96,7 +102,9 @@ export default async function handler(req, res) {
         prompt,
         n: 1,
         size,
-        quality
+        quality,
+        ...(output_format ? { output_format } : {}),
+        ...(output_compression !== undefined ? { output_compression: Number(output_compression) } : {})
       });
     }
 
