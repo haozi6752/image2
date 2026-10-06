@@ -892,48 +892,58 @@ const closePreview = () => {
   color: var(--text-primary);
 }
 
-/* 方案快速选择：全新自定义毛玻璃极简浮动菜单 (统一视觉语言，彻底告别丑陋原生 select) */
+/* 方案快速选择：极简浮动毛玻璃 (Floating Glassmorphism - 彻底告别系统方框与刺眼白底) */
 .profile-dropdown-wrapper {
   position: relative;
   user-select: none;
 }
 
 .profile-trigger-btn {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  outline: none !important;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   height: 32px;
-  padding: 0 10px;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  color: var(--text-secondary);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
   font-size: 0.78rem;
   font-weight: 600;
-  background: var(--bg-subtle);
-  border: 1px solid transparent;
+  cursor: pointer;
   transition: var(--transition-smooth);
 }
 
 .profile-trigger-btn:hover {
-  background: var(--bg-subtle-hover);
+  background: var(--bg-card-hover) !important;
+  border-color: var(--border-focus) !important;
   color: var(--text-primary);
+  box-shadow: 0 2px 14px var(--accent-glow);
   transform: translateY(-1px);
 }
 
 .profile-trigger-btn.open {
-  background: var(--primary-gradient-subtle);
-  color: var(--primary-color);
-  box-shadow: 0 0 14px var(--accent-glow);
+  background: var(--primary-gradient-subtle) !important;
+  border-color: var(--primary-color) !important;
+  color: var(--primary-color) !important;
+  box-shadow: 0 0 16px var(--accent-glow);
   transform: none;
 }
 
 .action-icon.profile-icon {
   color: var(--accent-purple);
+  filter: drop-shadow(0 0 4px var(--accent-purple));
   flex-shrink: 0;
 }
 
 .active-profile-name {
-  max-width: 120px;
+  max-width: 130px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -951,19 +961,19 @@ const closePreview = () => {
   color: var(--primary-color);
 }
 
-/* 浮动下拉菜单面板 */
+/* 浮动毛玻璃下拉菜单面板 (极简浮动岛) */
 .profile-dropdown-menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 240px;
+  width: 250px;
   padding: 8px;
   border-radius: var(--radius-md);
   background: var(--bg-card);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
   border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg), 0 0 24px rgba(0, 0, 0, 0.3);
   z-index: 1000;
   transform-origin: top right;
 }
@@ -1064,23 +1074,28 @@ const closePreview = () => {
 }
 
 .footer-manage-btn {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  outline: none !important;
+  border: 1px solid transparent !important;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius-xs);
   font-size: 0.74rem;
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-subtle);
+  cursor: pointer;
   transition: var(--transition-smooth);
 }
 
 .footer-manage-btn:hover {
-  background: var(--primary-gradient-subtle);
-  color: var(--primary-color);
+  background: var(--primary-gradient-subtle) !important;
+  color: var(--primary-color) !important;
 }
 
 /* 下拉菜单平滑弹出动画 (柔和缩放与微平移) */
