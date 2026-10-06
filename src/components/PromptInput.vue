@@ -8,13 +8,17 @@
   >
     <div class="input-panel glass-panel">
       <!-- 图生图：参考图片预览区 -->
-      <div v-if="imagePreview" class="upload-preview-area">
-        <div class="preview-card glass-panel">
-          <img :src="imagePreview" class="preview-img" />
-          <button class="remove-preview-btn" @click="clearUploadedImage" title="移除参考图" :disabled="isGenerating">
+      <div v-if="imagePreviewList.length > 0" class="upload-preview-area">
+        <div 
+          v-for="(item, idx) in imagePreviewList" 
+          :key="item.id || idx" 
+          class="preview-card glass-panel"
+        >
+          <img :src="item.url" class="preview-img" />
+          <button class="remove-preview-btn" @click="removeImage(idx)" title="移除参考图" :disabled="isGenerating">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
           </button>
-          <div class="preview-badge">已附加参考图</div>
+          <div class="preview-badge">Image {{ idx + 1 }}</div>
         </div>
       </div>
 
@@ -23,10 +27,10 @@
         <!-- 上传图片触发按钮 -->
         <button 
           class="upload-trigger-btn"
-          :class="{ 'has-image': !!imagePreview }"
+          :class="{ 'has-image': imagePreviewList.length > 0 }"
           @click="triggerUpload"
           :disabled="isGenerating"
-          title="上传参考图 (图生图)"
+          :title="imagePreviewList.length > 0 ? `已上传 ${imagePreviewList.length} 张参考图 (最多16张)` : '上传参考图 (支持批量多选)'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
         </button>
@@ -34,6 +38,7 @@
           type="file" 
           ref="fileInputRef" 
           style="display: none" 
+          multiple
           accept="image/png, image/jpeg, image/webp" 
           @change="onFileChange" 
         />
@@ -77,7 +82,9 @@
           :disabled="prompt.trim().length === 0 || isGenerating"
           @click="submit"
         >
-          <span v-if="!isGenerating">{{ imagePreview ? '以图生图' : '生成图片' }}</span>
+          <span v-if="!isGenerating">
+            {{ imagePreviewList.length > 1 ? `多图融合 (${imagePreviewList.length}图)` : (imagePreviewList.length === 1 ? '以图生图' : '生成图片') }}
+          </span>
           <span v-else class="generating-text">
             <svg class="spinner" viewBox="0 0 50 50">
               <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
@@ -121,10 +128,11 @@ const prompt = ref('');
 const isFocused = ref(false);
 const textareaRef = ref(null);
 
-// 图生图状态
+// 图生图与多图融合状态 (支持最多16张)
 const fileInputRef = ref(null);
-const imagePreview = ref('');
-const imageBase64 = ref('');
+const imagePreviewList = ref([]);
+const imagePreview = computed(() => imagePreviewList.value[0]?.url || '');
+const imageBase64 = computed(() => imagePreviewList.value[0]?.url || '');
 
 const triggerUpload = () => {
   if (props.isGenerating) return;
@@ -132,58 +140,75 @@ const triggerUpload = () => {
 };
 
 const onFileChange = (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
 
-  // 修改大小限制为 20MB
-  if (file.size > 20 * 1024 * 1024) {
-    alert('图片大小不能超过 20MB，请上传较小的图片。');
+  const availableSlots = 16 - imagePreviewList.value.length;
+  if (availableSlots <= 0) {
+    alert('参考图数量已达上限 (单次最多 16 张)');
+    e.target.value = '';
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
-      const max_dim = 1536; // 限制最大边为 1536px，在保证清晰度的同时极大压缩传输体积，避开 Vercel 的 4.5MB Payload 限制
+  const filesToProcess = files.slice(0, availableSlots);
 
-      if (width > max_dim || height > max_dim) {
-        if (width > height) {
-          height = Math.round((height * max_dim) / width);
-          width = max_dim;
-        } else {
-          width = Math.round((width * max_dim) / height);
-          height = max_dim;
+  filesToProcess.forEach(file => {
+    if (file.size > 20 * 1024 * 1024) {
+      alert(`图片 [${file.name}] 超过 20MB，已跳过。`);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const max_dim = 1536;
+
+        if (width > max_dim || height > max_dim) {
+          if (width > height) {
+            height = Math.round((height * max_dim) / width);
+            width = max_dim;
+          } else {
+            width = Math.round((width * max_dim) / height);
+            height = max_dim;
+          }
         }
-      }
 
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
 
-      // 导出为 PNG 格式以适配 GPT Image 2/DALL-E 接口规范
-      const compressedDataUrl = canvas.toDataURL('image/png');
-      
-      imagePreview.value = compressedDataUrl;
-      imageBase64.value = compressedDataUrl;
-      emit('upload-image', compressedDataUrl);
+        const compressedDataUrl = canvas.toDataURL('image/png');
+        imagePreviewList.value.push({
+          id: 'preview_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          url: compressedDataUrl
+        });
+
+        emit('upload-image', imagePreviewList.value.map(i => i.url));
+      };
+      img.src = event.target.result;
     };
-    img.src = event.target.result;
-  };
-  reader.readAsDataURL(file);
+    reader.readAsDataURL(file);
+  });
+
+  e.target.value = '';
+};
+
+const removeImage = (index) => {
+  imagePreviewList.value.splice(index, 1);
+  emit('upload-image', imagePreviewList.value.map(i => i.url));
 };
 
 const clearUploadedImage = () => {
-  imagePreview.value = '';
-  imageBase64.value = '';
+  imagePreviewList.value = [];
   if (fileInputRef.value) {
     fileInputRef.value.value = '';
   }
-  emit('upload-image', '');
+  emit('upload-image', []);
 };
 
 // 随机灵感词池
@@ -262,12 +287,16 @@ const handleEnter = (e) => {
 
 const submit = () => {
   if (prompt.value.trim().length === 0 || props.isGenerating) return;
-  emit('generate', prompt.value.trim());
+  emit('generate', {
+    prompt: prompt.value.trim(),
+    images: imagePreviewList.value.map(i => i.url)
+  });
   textareaRef.value?.blur();
 };
 
 defineExpose({
   clearUploadedImage,
+  removeImage,
   clearPrompt
 });
 
@@ -533,7 +562,12 @@ onMounted(() => {
 
 .upload-preview-area {
   display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
   animation: slideDown 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 

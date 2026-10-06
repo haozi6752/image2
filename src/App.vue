@@ -1,14 +1,37 @@
 <template>
   <div class="app-wrapper">
-    <!-- 顶部状态栏 -->
+    <!-- 顶部状态栏与导航 -->
     <header class="app-header glass-panel">
+      <!-- 左侧：品牌 Logo -->
       <div class="header-logo">
         <div class="logo-glow"></div>
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="logo-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
         <div class="logo-text">
           <h1>智能生图工坊</h1>
-          <span class="version-tag">GPT Image 2</span>
         </div>
+      </div>
+
+      <!-- 中间：顶部悬浮双页切换按钮 (灵感画布 vs 成果画廊) -->
+      <div class="nav-segment-control">
+        <button 
+          class="nav-tab-btn" 
+          :class="{ active: currentTab === 'canvas' }"
+          @click="currentTab = 'canvas'"
+          title="节点式无限探索画布，支持图与图多轮参考衍生"
+        >
+          <span class="tab-icon">🎨</span>
+          <span class="tab-label">灵感画布</span>
+        </button>
+        <button 
+          class="nav-tab-btn" 
+          :class="{ active: currentTab === 'gallery' }"
+          @click="currentTab = 'gallery'"
+          title="浏览已生成的历史画作档案"
+        >
+          <span class="tab-icon">🖼️</span>
+          <span class="tab-label">成果画廊</span>
+          <span v-if="historyList.length > 0" class="history-count-badge">{{ historyList.length }}</span>
+        </button>
       </div>
 
       <!-- 右上角控制 -->
@@ -21,7 +44,9 @@
             @change="handleProfileSwitch"
             class="profile-select"
           >
-            <option v-for="p in apiProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+            <option v-for="p in apiProfiles" :key="p.id" :value="p.id">
+              {{ p.provider ? `[${p.provider}] ` : '' }}{{ p.name }}
+            </option>
           </select>
         </div>
 
@@ -29,50 +54,51 @@
           <span class="status-dot"></span>
           <span class="status-text">{{ isApiConfigured ? 'API 已配置' : 'API 未设置' }}</span>
         </div>
-        <button class="icon-btn settings-btn" @click="isSettingsOpen = true" title="设置 API 参数">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="settings-gear"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <button class="icon-btn settings-btn" @click="isSettingsOpen = true" title="配置 API 服务商与方案">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="settings-gear"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
       </div>
     </header>
 
     <!-- 主体区域 -->
     <div class="app-main">
-      <!-- 左侧设置栏 -->
+      <!-- 仅在画布页展示全局控制侧栏，画廊页隐藏以全屏沉浸浏览 -->
       <Sidebar 
+        v-if="currentTab === 'canvas'"
         v-model:isVisible="sidebarVisible" 
         @change-settings="handleSettingsChange"
       />
 
-      <!-- 中央展示与输入区 -->
-      <div class="content-area" :class="{ 'empty': historyList.length === 0 && !isGenerating }">
-        <!-- 历史作品瀑布流 -->
-        <div class="gallery-wrapper" :class="{ 'visible': historyList.length > 0 || isGenerating }">
-          <Gallery 
-            :items="historyList" 
+      <!-- 中央页面视口容器 -->
+      <div class="content-viewport">
+        <!-- 页面一：灵感画布 (Canvas Workbench) -->
+        <div v-show="currentTab === 'canvas'" class="tab-page canvas-page">
+          <CanvasWorkbench 
+            ref="canvasRef"
             :isGenerating="isGenerating"
+            :currentSettings="genSettings"
+            :historyItems="historyList"
+            @generate="handleCanvasGenerate"
             @preview="openPreview"
-            @reuse-prompt="handleReusePrompt"
-            @delete="handleDeleteImage"
             @show-toast="showToastMsg"
           />
         </div>
 
-        <!-- 空白时的主页展示 -->
-        <div class="hero-section" :class="{ 'collapsed': historyList.length > 0 || isGenerating }">
-          <div class="hero-title">
-            <h2>创造你的视觉世界</h2>
-            <p>基于先进的 GPT Image 2 模型，支持全维度自定义比例与极清图像生成。</p>
+        <!-- 页面二：成果画廊 (Gallery Archive，纯粹浏览档案) -->
+        <div v-show="currentTab === 'gallery'" class="tab-page gallery-page">
+          <div class="gallery-inner-container">
+            <Gallery 
+              :items="historyList" 
+              :isGenerating="isGenerating"
+              @preview="openPreview"
+              @reuse-prompt="handleReusePrompt"
+              @delete="handleDeleteImage"
+              @clear-all="handleClearAllGallery"
+              @goto-canvas="currentTab = 'canvas'"
+              @show-toast="showToastMsg"
+              @send-to-canvas="handleSendToCanvas"
+            />
           </div>
-        </div>
-
-        <!-- 底部输入框容器 -->
-        <div class="input-wrapper">
-          <PromptInput 
-            ref="promptInputRef"
-            :isGenerating="isGenerating" 
-            @generate="generateImage"
-            @upload-image="handleUploadImage"
-          />
         </div>
       </div>
     </div>
@@ -93,13 +119,13 @@
       @close="closePreview"
     />
 
-    <!-- Toast 提示消息 -->
+    <!-- 全局 Toast 提示消息 -->
     <Transition name="slide-toast">
       <div v-if="toast.show" class="toast-notification" :class="toast.type">
         <span class="toast-icon">
-          <svg v-if="toast.type === 'success'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-          <svg v-else-if="toast.type === 'error'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <svg v-if="toast.type === 'success'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <svg v-else-if="toast.type === 'error'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
         </span>
         <span class="toast-text">{{ toast.message }}</span>
       </div>
@@ -114,7 +140,20 @@ import SettingsModal from './components/SettingsModal.vue';
 import PromptInput from './components/PromptInput.vue';
 import Gallery from './components/Gallery.vue';
 import Lightbox from './components/Lightbox.vue';
-import { cacheImage, getCachedImageUrl, deleteCachedImage } from './utils/db';
+import CanvasWorkbench from './components/CanvasWorkbench.vue';
+import { 
+  initDB, 
+  getAllHistoryRecords, 
+  saveHistoryRecord, 
+  deleteHistoryRecord, 
+  clearAllRecords,
+  migrateFromLocalStorage, 
+  cacheImage, 
+  getCachedImageUrl 
+} from './utils/db';
+
+// 当前页面标签：'canvas' (灵感画布) | 'gallery' (成果画廊)
+const currentTab = ref('canvas');
 
 // API 配置与多方案管理状态
 const apiProfiles = ref([]);
@@ -139,28 +178,39 @@ const isGenerating = ref(false);
 const isLightboxOpen = ref(false);
 const activePreviewItem = ref({});
 
+// 画布组件实例引用
+const canvasRef = ref(null);
+const promptInputRef = ref(null);
+
 // 图像生成配置
 const genSettings = ref({
+  model: 'gpt-image-2.5-flare',
   width: 1024,
   height: 1024,
-  quality: 'auto',
+  quality: 'high',
   outputFormat: 'png',
   outputCompression: 80,
-  ratio: '1:1'
+  ratio: '1:1',
+  transparentBackground: false
 });
 
-// 历史作品列表
+// 历史作品列表 (从 IndexedDB 异步读取与维护)
 const historyList = ref([]);
 
-// Toast 弹窗状态
+// Toast 状态
 const toast = ref({
   show: false,
   message: '',
   type: 'info'
 });
 
-// PromptInput 实例引用，用于重填词
-const promptInputRef = ref(null);
+// 显示 Toast
+const showToastMsg = ({ message, type = 'info' }) => {
+  toast.value = { show: true, message, type };
+  setTimeout(() => {
+    toast.value.show = false;
+  }, 3500);
+};
 
 // 保存方案数据至 localStorage
 const saveProfilesToStorage = () => {
@@ -179,31 +229,33 @@ const saveApiProfiles = ({ profiles, activeProfileId: selectedId }) => {
 // 头部快捷切换方案
 const handleProfileSwitch = () => {
   saveProfilesToStorage();
-  showToastMsg({ message: `已快捷切换至：${activeProfile.value?.name}`, type: 'success' });
+  showToastMsg({ message: `已切换至方案：${activeProfile.value?.name}`, type: 'success' });
 };
 
-// 初始化加载配置与离线图缓存解析
-onMounted(() => {
+// 初始化：平滑迁移历史至 IndexedDB，彻底根除 localStorage 5MB 限制
+onMounted(async () => {
+  // 1. 初始化方案配置
   const savedProfiles = localStorage.getItem('api_profiles');
   const savedActiveId = localStorage.getItem('active_profile_id');
   
   if (savedProfiles) {
-    apiProfiles.value = JSON.parse(savedProfiles);
-    activeProfileId.value = savedActiveId || apiProfiles.value[0]?.id || '';
-  } else {
-    // 平滑向后兼容迁移老数据
-    const oldBase = localStorage.getItem('api_base_url') || 'https://api.openai.com/v1';
-    const oldKey = localStorage.getItem('api_key') || '';
-    const oldModel = localStorage.getItem('api_model') || 'gpt-image-2';
-    const oldProxy = localStorage.getItem('use_proxy') !== null ? JSON.parse(localStorage.getItem('use_proxy')) : true;
-    
+    try {
+      apiProfiles.value = JSON.parse(savedProfiles);
+      activeProfileId.value = savedActiveId || apiProfiles.value[0]?.id || '';
+    } catch (e) {
+      apiProfiles.value = [];
+    }
+  }
+
+  if (apiProfiles.value.length === 0) {
     const defaultProfile = {
       id: 'default',
-      name: '默认方案',
-      baseURL: oldBase,
-      apiKey: oldKey,
-      model: oldModel,
-      useProxy: oldProxy
+      provider: '官方 OpenAI',
+      name: '标准方案',
+      baseURL: 'https://api.openai.com/v1',
+      apiKey: '',
+      model: 'gpt-image-2.5-flare',
+      useProxy: true
     };
     apiProfiles.value = [defaultProfile];
     activeProfileId.value = 'default';
@@ -213,19 +265,24 @@ onMounted(() => {
   const savedSidebar = localStorage.getItem('sidebar_visible');
   sidebarVisible.value = savedSidebar !== null ? JSON.parse(savedSidebar) : true;
 
+  // 2. 数据库初始化与数据迁移 (解决图四 QuotaExceededError 核心)
   try {
-    const savedHistory = localStorage.getItem('image_history');
-    const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
-    historyList.value = parsedHistory;
-    // 异步加载 IndexedDB 图片缓存
+    await initDB();
+    // 自动将用户原有的 localStorage 历史无损迁移到 IndexedDB，并清空 localStorage 缓存
+    await migrateFromLocalStorage();
+    
+    // 从 IndexedDB 读取全部历史记录
+    const records = await getAllHistoryRecords();
+    historyList.value = records;
+
+    // 异步解析离线 Blob 图片地址
     resolveOfflineUrls();
   } catch (e) {
-    console.error('Failed to parse history', e);
-    historyList.value = [];
+    console.error('IndexedDB 历史加载失败:', e);
   }
 });
 
-// 异步解析本地 IndexedDB 缓存
+// 解析 IndexedDB 离线缓存
 const resolveOfflineUrls = async () => {
   for (let i = 0; i < historyList.value.length; i++) {
     const item = historyList.value[i];
@@ -238,7 +295,7 @@ const resolveOfflineUrls = async () => {
 
 // 处理生图设置的变更
 const handleSettingsChange = (newSettings) => {
-  genSettings.value = newSettings;
+  genSettings.value = { ...genSettings.value, ...newSettings };
   usePersonalPrompt.value = newSettings.usePersonalPrompt || false;
   personalPrompt.value = newSettings.personalPrompt || '';
 };
@@ -248,79 +305,25 @@ const handleUploadImage = (base64) => {
   uploadedImageB64.value = base64;
 };
 
-// 监听侧边栏可见度
-const handleSidebarToggle = (val) => {
-  sidebarVisible.value = val;
-  localStorage.setItem('sidebar_visible', JSON.stringify(val));
-};
-
-// 重用提示词
-const handleReusePrompt = (promptText) => {
-  if (promptInputRef.value) {
-    promptInputRef.value.prompt = promptText;
-    promptInputRef.value.adjustHeight();
-    promptInputRef.value.textareaRef?.focus();
-    showToastMsg({ message: '提示词已填入输入框', type: 'info' });
-  }
-};
-
-// 删除作品与对应的本地缓存
-const handleDeleteImage = async (id) => {
-  const item = historyList.value.find(h => h.id === id);
-  if (item && item.url.startsWith('blob:')) {
-    URL.revokeObjectURL(item.url);
-  }
-  historyList.value = historyList.value.filter(item => item.id !== id);
-  localStorage.setItem('image_history', JSON.stringify(historyList.value));
-  await deleteCachedImage(id);
-  showToastMsg({ message: '生图记录已删除', type: 'info' });
-};
-
-// 打开大图预览
-const openPreview = (item) => {
-  activePreviewItem.value = item;
-  isLightboxOpen.value = true;
-};
-
-const closePreview = () => {
-  isLightboxOpen.value = false;
-};
-
-// 全局 Toast
-const showToastMsg = ({ message, type = 'info' }) => {
-  toast.value.message = message;
-  toast.value.type = type;
-  toast.value.show = true;
-  
-  setTimeout(() => {
-    toast.value.show = false;
-  }, 3000);
-};
-
-// 核心功能：调用 API 进行生图
-const generateImage = async (promptText) => {
-  if (!isApiConfigured.value) {
-    showToastMsg({ message: '请先配置有效的 API Key！', type: 'error' });
-    isSettingsOpen.value = true;
-    return;
+// 核心网络请求逻辑 (文生图 / 单图衍生 / 多图融合)
+const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }) => {
+  const currentConfig = activeProfile.value;
+  if (!currentConfig || !currentConfig.apiKey) {
+    throw new Error('请先在右上角设置中配置有效的 API Key！');
   }
 
-  isGenerating.value = true;
-  showToastMsg({ message: '图像生成请求已提交，正在等待排队渲染...', type: 'info' });
-
-  // 拼接个性化配置的前缀提示词
-  let finalPrompt = promptText;
-  if (usePersonalPrompt.value && personalPrompt.value.trim()) {
-    finalPrompt = `${personalPrompt.value.trim()}\n${promptText}`;
+  // 整理单图或多图列表 (兼容单字符串与多图数组，最多 16 张)
+  let imagesList = [];
+  if (Array.isArray(refImagesB64) && refImagesB64.length > 0) {
+    imagesList = refImagesB64.filter(Boolean);
+  } else if (refImageB64) {
+    imagesList = [refImageB64];
   }
 
-  const isEditMode = !!uploadedImageB64.value;
+  const isEditMode = imagesList.length > 0;
   const targetPath = isEditMode ? '/images/edits' : '/images/generations';
 
-  const currentConfig = activeProfile.value;
   const cleanBase = currentConfig.baseURL.replace(/\/$/, '');
-  
-  // 智能推导正确的端点链接
   let requestURL = cleanBase;
   if (cleanBase.endsWith(targetPath)) {
     requestURL = cleanBase;
@@ -336,178 +339,294 @@ const generateImage = async (promptText) => {
     }
   }
 
-  const sizeString = `${genSettings.value.width}x${genSettings.value.height}`;
+  const chosenModel = model || genSettings.value.model || currentConfig.model || 'gpt-image-2.5-flare';
+  const chosenSize = size || `${genSettings.value.width}x${genSettings.value.height}`;
 
-  try {
-    let response;
-    if (currentConfig.useProxy) {
-      // 通过 Vercel Serverless 反向代理发送请求
-      response = await fetch('/api/proxy', {
+  let response;
+  if (currentConfig.useProxy) {
+    // 经由反代 (透传多图数组 imagesB64)
+    response = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseURL: currentConfig.baseURL,
+        apiKey: currentConfig.apiKey,
+        model: chosenModel,
+        prompt: prompt,
+        size: chosenSize,
+        quality: genSettings.value.quality,
+        output_format: genSettings.value.outputFormat,
+        output_compression: genSettings.value.outputCompression,
+        imageB64: imagesList[0] || undefined,
+        imagesB64: imagesList.length > 0 ? imagesList : undefined
+      })
+    });
+  } else {
+    // 客户端直连
+    if (isEditMode) {
+      const formData = new FormData();
+      // 多张图使用 image[] 数组键名，单图使用兼容的 image 键名
+      const fieldName = imagesList.length > 1 ? 'image[]' : 'image';
+
+      for (let i = 0; i < imagesList.length; i++) {
+        const blobRes = await fetch(imagesList[i]);
+        const blob = await blobRes.blob();
+        formData.append(fieldName, blob, `image_${i + 1}.png`);
+      }
+
+      formData.append('prompt', prompt);
+      formData.append('model', chosenModel);
+      formData.append('size', chosenSize);
+      if (genSettings.value.quality) formData.append('quality', genSettings.value.quality);
+      if (genSettings.value.outputFormat) formData.append('output_format', genSettings.value.outputFormat);
+
+      response = await fetch(requestURL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          baseURL: currentConfig.baseURL,
-          apiKey: currentConfig.apiKey,
-          model: currentConfig.model,
-          prompt: finalPrompt,
-          size: sizeString,
-          quality: genSettings.value.quality,
-          output_format: genSettings.value.outputFormat,
-          output_compression: genSettings.value.outputCompression,
-          imageB64: uploadedImageB64.value || undefined
-        })
+        headers: { 'Authorization': `Bearer ${currentConfig.apiKey}` },
+        body: formData
       });
     } else {
-      // 直连目标 API
-      if (isEditMode) {
-        // 图生图直连使用 FormData 传输
-        const formData = new FormData();
-        const blobRes = await fetch(uploadedImageB64.value);
-        const blob = await blobRes.blob();
-        
-        formData.append('image', blob, 'image.png');
-        formData.append('prompt', finalPrompt);
-        formData.append('model', currentConfig.model);
-        formData.append('size', sizeString);
-        
-        if (genSettings.value.quality) {
-          formData.append('quality', genSettings.value.quality);
-        }
-        if (genSettings.value.outputFormat) {
-          formData.append('output_format', genSettings.value.outputFormat);
-        }
-        if (genSettings.value.outputCompression !== undefined) {
-          formData.append('output_compression', String(genSettings.value.outputCompression));
-        }
-
-        response = await fetch(requestURL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${currentConfig.apiKey}`
-          },
-          body: formData
-        });
-      } else {
-        // 文生图直连使用 JSON 格式
-        response = await fetch(requestURL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentConfig.apiKey}`
-          },
-          body: JSON.stringify({
-            model: currentConfig.model,
-            prompt: finalPrompt,
-            n: 1,
-            size: sizeString,
-            quality: genSettings.value.quality,
-            ...(genSettings.value.outputFormat ? { output_format: genSettings.value.outputFormat } : {}),
-            ...(genSettings.value.outputCompression !== undefined ? { output_compression: Number(genSettings.value.outputCompression) } : {})
-          })
-        });
-      }
+      response = await fetch(requestURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentConfig.apiKey}`
+        },
+        body: JSON.stringify({
+          model: chosenModel,
+          prompt: prompt,
+          n: 1,
+          size: chosenSize,
+          quality: genSettings.value.quality,
+          ...(genSettings.value.outputFormat ? { output_format: genSettings.value.outputFormat } : {})
+        })
+      });
     }
+  }
 
-    let data = null;
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
+  let data = null;
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    data = await response.json();
+  }
+
+  if (!response.ok) {
+    let errMsg = `服务商接口返回错误 (HTTP ${response.status})`;
+    if (data && data.error && data.error.message) {
+      errMsg = `${errMsg}: ${data.error.message}`;
+    } else if (response.status === 404) {
+      errMsg = `${errMsg}。可能原因：1. 当前中转服务商未支持模型名称 [${chosenModel}]，请切换为 gpt-image-2 或 dall-e-3；2. Base URL 地址有误。`;
     }
+    throw new Error(errMsg);
+  }
 
-    if (!response.ok) {
-      let errMsg = `生图接口返回错误 (状态码 ${response.status})`;
-      if (data && data.error) {
-        errMsg = data.error.message || errMsg;
-      } else if (response.status === 404) {
-        errMsg = currentConfig.useProxy
-          ? `代理端点错误 (404)。请确保已部署在 Vercel 生产环境，且 Base URL 格式正确。目标地址: ${requestURL}`
-          : `端点错误 (404)。请检查设置中的 Base URL 是否填写正确（官方推荐以 /v1 结尾）。请求地址为: ${requestURL}`;
-      } else if (response.status === 401) {
-        errMsg = `未授权 (401)。请检查设置中的 API Key 是否正确填写且有效。`;
-      } else if (response.status === 403) {
-        errMsg = `拒绝访问 (403)。GPT Image 2 模型可能需要您的 API 组织通过认证，或该 API 密钥没有该模型的使用权限。`;
-      }
-      throw new Error(errMsg);
-    }
+  if (!data || !data.data || data.data.length === 0 || (!data.data[0].url && !data.data[0].b64_json)) {
+    throw new Error('服务商未返回图片数据');
+  }
 
-    if (!data || !data.data || data.data.length === 0 || (!data.data[0].url && !data.data[0].b64_json)) {
-      const stringifiedData = data ? JSON.stringify(data).substring(0, 150) : '空数据';
-      throw new Error(`服务商未返回图片数据。返回内容: ${stringifiedData}`);
-    }
+  const imageUrl = data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`;
+  return { imageUrl, chosenModel, chosenSize };
+};
 
-    const imageUrl = data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`;
+// 处理来自灵感画布的工作流生成 (支持单图或多图融合工作流)
+const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages, parentId, parentIds }) => {
+  if (!isApiConfigured.value) {
+    showToastMsg({ message: '请先在右上角配置有效的 API 方案！', type: 'error' });
+    isSettingsOpen.value = true;
+    return;
+  }
 
-    // 成功后清除参考图上传状态
-    if (promptInputRef.value) {
-      promptInputRef.value.clearUploadedImage();
-    }
-    uploadedImageB64.value = '';
+  const images = (Array.isArray(refImages) && refImages.length > 0) ? refImages : (refImage ? [refImage] : []);
+  const parents = (Array.isArray(parentIds) && parentIds.length > 0) ? parentIds : (parentId ? [parentId] : []);
+
+  isGenerating.value = true;
+  const toastText = images.length > 1 
+    ? `多图融合任务提交 (${images.length}张参考图)，正在渲染...` 
+    : '画布渲染任务已提交，正在生成...';
+  showToastMsg({ message: toastText, type: 'info' });
+
+  let finalPrompt = prompt;
+  if (genSettings.value.skillsPrompt && genSettings.value.skillsPrompt.trim()) {
+    finalPrompt = `${genSettings.value.skillsPrompt.trim()}\n${prompt}`;
+  } else if (usePersonalPrompt.value && personalPrompt.value.trim()) {
+    finalPrompt = `${personalPrompt.value.trim()}\n${prompt}`;
+  }
+
+  try {
+    const { imageUrl, chosenModel, chosenSize } = await executeApiCall({
+      prompt: finalPrompt,
+      model: model || genSettings.value.model,
+      size: `${genSettings.value.width}x${genSettings.value.height}`,
+      refImagesB64: images
+    });
 
     const recordId = Date.now();
-
-    // 新增历史记录，保存最初的远端链接作为 fallback
     const newRecord = {
       id: recordId,
       url: imageUrl,
       prompt: finalPrompt,
       width: genSettings.value.width,
       height: genSettings.value.height,
-      model: currentConfig.model,
-      timestamp: recordId
+      model: chosenModel,
+      ratio: ratio || '1:1',
+      timestamp: recordId,
+      parentId: parents[0] || null,
+      parentIds: parents,
+      refImageCount: images.length
     };
 
+    // 写入 IndexedDB (彻底解决 quota 异常)
+    await saveHistoryRecord(newRecord);
     historyList.value.unshift(newRecord);
-    localStorage.setItem('image_history', JSON.stringify(historyList.value));
 
-    // 触发后台 IndexedDB 离线缓存
-    cacheImage(recordId, imageUrl).then(async (success) => {
-      if (success) {
-        const localUrl = await getCachedImageUrl(recordId, imageUrl);
-        const item = historyList.value.find(h => h.id === recordId);
-        if (item) {
-          item.url = localUrl;
-        }
-      }
-    });
+    // 将新图片节点推送到无限画布中，自动建立多父级连线
+    if (canvasRef.value) {
+      canvasRef.value.addGeneratedImageToCanvas(newRecord, parents);
+    }
 
-    showToastMsg({ message: '绘制大功告成！画面已呈现在相册中。', type: 'success' });
+    // 后台缓存 Blob
+    cacheImage(recordId, imageUrl).catch(() => {});
 
-  } catch (error) {
-    console.error('Image generation error:', error);
-    showToastMsg({ message: `生成失败: ${error.message}`, type: 'error' });
+    const successMsg = images.length > 1 
+      ? `多图融合绘制完成！汇聚衍生画面已锚定。` 
+      : '灵感画布渲染完成！新画面已锚定。';
+    showToastMsg({ message: successMsg, type: 'success' });
+  } catch (err) {
+    console.error('Canvas generate error:', err);
+    showToastMsg({ message: `生成失败: ${err.message}`, type: 'error' });
   } finally {
     isGenerating.value = false;
   }
 };
+
+// 处理来自底部常规输入的生成
+const generateFromBottomInput = async (promptText) => {
+  if (!isApiConfigured.value) {
+    showToastMsg({ message: '请先配置 API Key！', type: 'error' });
+    isSettingsOpen.value = true;
+    return;
+  }
+
+  isGenerating.value = true;
+  showToastMsg({ message: '正在渲染新画面...', type: 'info' });
+
+  let finalPrompt = promptText;
+  if (usePersonalPrompt.value && personalPrompt.value.trim()) {
+    finalPrompt = `${personalPrompt.value.trim()}\n${promptText}`;
+  }
+
+  try {
+    const { imageUrl, chosenModel } = await executeApiCall({
+      prompt: finalPrompt,
+      model: genSettings.value.model,
+      refImageB64: uploadedImageB64.value || null
+    });
+
+    if (promptInputRef.value) {
+      promptInputRef.value.clearUploadedImage();
+    }
+    uploadedImageB64.value = '';
+
+    const recordId = Date.now();
+    const newRecord = {
+      id: recordId,
+      url: imageUrl,
+      prompt: finalPrompt,
+      width: genSettings.value.width,
+      height: genSettings.value.height,
+      model: chosenModel,
+      ratio: genSettings.value.ratio,
+      timestamp: recordId
+    };
+
+    // 存储至 IndexedDB
+    await saveHistoryRecord(newRecord);
+    historyList.value.unshift(newRecord);
+
+    // 同步给画布
+    if (canvasRef.value) {
+      canvasRef.value.addGeneratedImageToCanvas(newRecord);
+    }
+
+    cacheImage(recordId, imageUrl).catch(() => {});
+    showToastMsg({ message: '绘制大功告成！画面已保存至画廊。', type: 'success' });
+  } catch (err) {
+    console.error('Bottom input generate error:', err);
+    showToastMsg({ message: `生成失败: ${err.message}`, type: 'error' });
+  } finally {
+    isGenerating.value = false;
+  }
+};
+
+// 从画廊卡片点击“在灵感画布中参考衍生”
+const handleSendToCanvas = (item) => {
+  currentTab.value = 'canvas';
+  if (canvasRef.value) {
+    canvasRef.value.loadExternalImageToCanvas(item);
+    canvasRef.value.branchFromImage(item);
+  }
+  showToastMsg({ message: '已载入画布并开启参考衍生分支！', type: 'success' });
+};
+
+// 删除单张历史图片
+const handleDeleteImage = async (id) => {
+  const success = await deleteHistoryRecord(id);
+  if (success) {
+    historyList.value = historyList.value.filter(item => item.id !== id);
+    showToastMsg({ message: '记录已成功删除', type: 'info' });
+  }
+};
+
+// 清空所有历史画作
+const handleClearAllGallery = async () => {
+  await clearAllRecords();
+  historyList.value = [];
+  showToastMsg({ message: '历史画作档案已全部清空', type: 'info' });
+};
+
+// 重用提示词
+const handleReusePrompt = (promptText) => {
+  if (promptInputRef.value) {
+    promptInputRef.value.setPrompt(promptText);
+  }
+  currentTab.value = 'canvas';
+  showToastMsg({ message: '提示词已填入！', type: 'info' });
+};
+
+// 大图灯箱
+const openPreview = (item) => {
+  activePreviewItem.value = item;
+  isLightboxOpen.value = true;
+};
+
+const closePreview = () => {
+  isLightboxOpen.value = false;
+};
 </script>
 
-<style>
-/* 全局应用架构布局 */
+<style scoped>
 .app-wrapper {
   display: flex;
   flex-direction: column;
-  height: 100vh;
   width: 100vw;
-  background-color: var(--bg-color);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.05) 0px, transparent 50%),
-    radial-gradient(at 50% 0%, rgba(139, 92, 246, 0.05) 0px, transparent 50%);
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
+/* 顶部栏 */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 24px;
-  height: 64px;
+  padding: 10px 24px;
+  height: 62px;
   z-index: 100;
-  border-radius: 0;
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  background: rgba(15, 23, 42, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 14, 22, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .header-logo {
@@ -519,8 +638,8 @@ const generateImage = async (promptText) => {
 
 .logo-glow {
   position: absolute;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   background: var(--primary-gradient);
   filter: blur(12px);
   opacity: 0.6;
@@ -528,14 +647,8 @@ const generateImage = async (promptText) => {
 }
 
 .logo-icon {
-  color: var(--accent-color);
+  color: #818cf8;
   z-index: 1;
-}
-
-.logo-text h1 {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .logo-text {
@@ -544,272 +657,248 @@ const generateImage = async (promptText) => {
   gap: 8px;
 }
 
+.logo-text h1 {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
 .version-tag {
   font-size: 0.65rem;
-  background: var(--primary-gradient);
+  background: linear-gradient(135deg, #6366f1, #a855f7);
   color: #fff;
   padding: 1px 6px;
   border-radius: 4px;
   font-weight: 700;
 }
 
+/* 核心：顶部中央悬浮双页胶囊控制器 */
+.nav-segment-control {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px;
+  border-radius: 30px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.nav-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-radius: 24px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-tab-btn:hover {
+  color: #f1f5f9;
+}
+
+.nav-tab-btn.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(168, 85, 247, 0.9));
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+}
+
+.tab-icon {
+  font-size: 0.95rem;
+}
+
+.history-count-badge {
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+/* 右上角方案与状态 */
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
+}
+
+.profile-quick-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.profile-icon {
+  color: #818cf8;
+}
+
+.profile-select {
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  outline: none;
+  cursor: pointer;
+  max-width: 160px;
+}
+
+.profile-select option {
+  background: #12141d;
+  color: #e2e8f0;
 }
 
 .api-status-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border-color);
-  padding: 4px 12px;
-  border-radius: 99px;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  color: #94a3b8;
 }
 
 .status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-error);
+  background: #ef4444;
 }
 
 .api-status-badge.configured .status-dot {
-  background: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success);
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
 }
 
 .icon-btn {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .icon-btn:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
-.settings-btn:hover .settings-gear {
-  transform: rotate(45deg);
-}
-
-.settings-gear {
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
+/* 主体区域 */
 .app-main {
   display: flex;
   flex: 1;
+  height: calc(100vh - 62px);
   overflow: hidden;
   position: relative;
 }
 
-/* 中央生图展示与输入区布局 */
-.content-area {
+.content-viewport {
   flex: 1;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-page {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* 画布页面全屏撑满 */
+.canvas-page {
+  display: flex;
+}
+
+/* 画廊页面带底部悬浮输入 */
+.gallery-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  position: relative;
-  transition: var(--transition-smooth);
 }
 
-.gallery-wrapper {
+.gallery-inner-container {
   flex: 1;
-  overflow: hidden;
-  height: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.6s ease, height 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+  overflow-y: auto;
+  padding-bottom: 90px;
 }
 
-.gallery-wrapper.visible {
-  height: 100%;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.input-wrapper {
-  padding: 24px;
-  background: linear-gradient(to top, rgba(6, 9, 19, 0.8) 50%, rgba(6, 9, 19, 0) 100%);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 10;
-  transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.6s ease;
-}
-
-/* 页面没有生图历史时的居中排列 */
-.content-area.empty {
-  justify-content: center;
-}
-
-.content-area.empty .input-wrapper {
-  margin-top: 20px;
-  margin-bottom: auto;
-  transform: translateY(-20px);
-  background: transparent;
-}
-
-.hero-section {
-  text-align: center;
-  margin-top: auto;
-  margin-bottom: 20px;
-  padding: 0 24px;
-  opacity: 1;
-  max-height: 300px;
-  transition: opacity 0.4s ease, max-height 0.6s cubic-bezier(0.25, 1, 0.5, 1), margin 0.6s cubic-bezier(0.25, 1, 0.5, 1), padding 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.hero-section.collapsed {
-  max-height: 0;
-  opacity: 0;
-  margin: 0;
-  padding: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.hero-title h2 {
-  font-size: 2.25rem;
-  font-weight: 800;
-  margin-bottom: 12px;
-  background: linear-gradient(135deg, #c7d2fe 0%, #8678f9 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.02em;
-}
-
-.hero-title p {
-  font-size: 1rem;
-  color: var(--text-secondary);
-  max-width: 500px;
-  margin: 0 auto;
-  line-height: 1.6;
-}
-
-/* Toast 通知样式 */
-.toast-notification {
-  position: fixed;
-  top: 24px;
+.gallery-bottom-input {
+  position: absolute;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color);
-  padding: 12px 20px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  z-index: 3000;
-  max-width: 90vw;
+  width: 90%;
+  max-width: 820px;
+  z-index: 50;
 }
 
-.toast-icon {
+/* Toast 提示 */
+.toast-notification {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  background: rgba(18, 20, 29, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
 }
 
 .toast-notification.success {
-  border-color: rgba(16, 185, 129, 0.3);
-}
-.toast-notification.success .toast-icon {
-  color: var(--color-success);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
 }
 
 .toast-notification.error {
-  border-color: rgba(244, 63, 94, 0.3);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
 }
-.toast-notification.error .toast-icon {
-  color: var(--color-error);
+
+.toast-notification.info {
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #818cf8;
 }
 
 .toast-notification.warning {
-  border-color: rgba(245, 158, 11, 0.3);
-}
-.toast-notification.warning .toast-icon {
-  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
 }
 
-.toast-notification.info .toast-icon {
-  color: var(--accent-color);
-}
-
-.toast-text {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-/* Toast 动画 */
 .slide-toast-enter-active,
 .slide-toast-leave-active {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+  transition: all 0.25s ease;
 }
 
-.slide-toast-enter-from {
-  transform: translate(-50%, -30px);
-  opacity: 0;
-}
-
+.slide-toast-enter-from,
 .slide-toast-leave-to {
-  transform: translate(-50%, -20px);
   opacity: 0;
-}
-
-/* 方案快捷切换下拉框样式 */
-.profile-quick-switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-color);
-  padding: 6px 12px;
-  border-radius: 10px;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  transition: var(--transition-fast);
-  cursor: pointer;
-}
-
-.profile-quick-switch:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.profile-icon {
-  color: var(--accent-color);
-  opacity: 0.8;
-}
-
-.profile-select {
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 0.75rem;
-  font-weight: 600;
-  outline: none;
-  cursor: pointer;
-  padding-right: 4px;
-}
-
-.profile-select option {
-  background: #0f172a;
-  color: var(--text-primary);
+  transform: translate(-50%, -15px);
 }
 </style>

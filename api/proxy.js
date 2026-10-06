@@ -22,14 +22,22 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64 } = req.body;
+  const { baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64, imagesB64 } = req.body;
 
   if (!baseURL || !apiKey || !prompt) {
     res.status(400).json({ error: { message: '缺少必要参数 (baseURL, apiKey 或 prompt)' } });
     return;
   }
 
-  const isEditMode = !!imageB64;
+  // 整理单图或多图列表 (兼容旧版单图 imageB64 与新版多图 imagesB64)
+  let imagesList = [];
+  if (Array.isArray(imagesB64) && imagesB64.length > 0) {
+    imagesList = imagesB64.filter(Boolean);
+  } else if (imageB64) {
+    imagesList = [imageB64];
+  }
+
+  const isEditMode = imagesList.length > 0;
   const targetPath = isEditMode ? '/images/edits' : '/images/generations';
 
   // 格式化目标 API URL
@@ -59,23 +67,27 @@ export default async function handler(req, res) {
     };
 
     if (isEditMode) {
-      // 图生图模式：构建 FormData (Node 18+ 原生支持 FormData 与 Blob)
+      // 图生图模式：构建 FormData (支持多张参考图，遵循 OpenAI 官方规范)
       const formData = new FormData();
+      // 多张图使用 image[] 数组键名，单图使用兼容的 image 键名
+      const fieldName = imagesList.length > 1 ? 'image[]' : 'image';
+
+      imagesList.forEach((b64, idx) => {
+        // 解析 Base64 数据为 Blob
+        const matches = b64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        let buffer, mimeType = 'image/png';
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          buffer = Buffer.from(matches[2], 'base64');
+        } else {
+          buffer = Buffer.from(b64.split(',')[1] || b64, 'base64');
+        }
+        
+        const blob = new Blob([buffer], { type: mimeType });
+        formData.append(fieldName, blob, `image_${idx + 1}.png`);
+      });
       
-      // 解析 Base64 数据为 Blob
-      const matches = imageB64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      let buffer, mimeType = 'image/png';
-      if (matches && matches.length === 3) {
-        mimeType = matches[1];
-        buffer = Buffer.from(matches[2], 'base64');
-      } else {
-        buffer = Buffer.from(imageB64.split(',')[1] || imageB64, 'base64');
-      }
-      
-      const blob = new Blob([buffer], { type: mimeType });
-      
-      // 组装 multipart/form-data
-      formData.append('image', blob, 'image.png');
+      // 组装其余表单参数
       formData.append('prompt', prompt);
       formData.append('model', model);
       formData.append('size', size);
