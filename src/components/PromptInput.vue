@@ -341,21 +341,23 @@ onMounted(() => {
 }
 
 .input-panel {
-  padding: 12px 16px;
-  border-radius: 24px;
+  padding: 14px 20px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border-color);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   gap: 12px;
   transition: var(--transition-smooth);
-  background: rgba(15, 22, 42, 0.7);
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .focused .input-panel {
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 16px 50px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.2);
-  background: rgba(15, 22, 42, 0.85);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-lg);
+  background: var(--bg-surface-elevated);
 }
 
 .input-row {
@@ -387,28 +389,29 @@ onMounted(() => {
 
 .clear-btn, .random-btn {
   color: var(--text-secondary);
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
+  border-radius: var(--radius-pill);
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   margin-bottom: 4px;
+  transition: var(--transition-fast);
 }
 
 .clear-btn:hover, .random-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-subtle-hover);
   color: var(--text-primary);
 }
 
 .generate-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  border-radius: 14px;
-  padding: 0 20px;
-  height: 40px;
+  border-radius: var(--radius-pill);
+  padding: 0 22px;
+  height: 42px;
   font-size: 0.9rem;
   font-weight: 600;
   display: flex;
@@ -422,17 +425,17 @@ onMounted(() => {
   background: var(--primary-gradient);
   border-color: transparent;
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 14px var(--accent-glow);
 }
 
 .generate-btn.active:hover {
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-glow);
+  transform: translateY(-1.5px);
 }
 
 .generate-btn.generating {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.3);
+  background: var(--accent-indigo-bg);
+  border-color: var(--accent-indigo);
   color: var(--text-primary);
   pointer-events: none;
 }
@@ -534,7 +537,7 @@ onMounted(() => {
 /* 图生图上传与预览样式 */
 .upload-trigger-btn {
   color: var(--text-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   width: 38px;
   height: 38px;
   display: flex;
@@ -542,21 +545,21 @@ onMounted(() => {
   justify-content: center;
   flex-shrink: 0;
   margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-color);
   transition: var(--transition-smooth);
 }
 
 .upload-trigger-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-subtle-hover);
   color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-focus);
 }
 
 .upload-trigger-btn.has-image {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: var(--accent-color);
-  color: var(--text-primary);
+  background: var(--primary-gradient-subtle);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
   box-shadow: 0 0 10px var(--accent-glow);
 }
 
@@ -575,10 +578,10 @@ onMounted(() => {
   position: relative;
   width: 80px;
   height: 80px;
-  border-radius: 14px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--bg-subtle);
 }
 
 .preview-img {
@@ -591,10 +594,10 @@ onMounted(() => {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: rgba(6, 9, 19, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   width: 20px;
   height: 20px;
   display: flex;
@@ -615,8 +618,8 @@ onMounted(() => {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: rgba(6, 9, 19, 0.75);
-  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
   font-size: 0.6rem;
   text-align: center;
   padding: 2px 0;

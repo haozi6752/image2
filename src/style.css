@@ -1,52 +1,230 @@
-/* 全局样式设计系统 - 首席架构师设计 */
+/* 全局现代设计系统 - 首席架构师设计 */
+/* 支持日间模式 (晨曦微光·珠光瓷白·多彩柔和) 与夜间模式 (星海深空·极光绀青·霓虹绚彩) */
+
 :root {
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  
-  /* 暗色调主题色 */
-  --bg-color: #060913;
-  --bg-card: rgba(15, 22, 42, 0.65);
-  --bg-card-hover: rgba(22, 30, 56, 0.8);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.6);
-  
-  /* 渐变与色彩强调 */
-  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  --accent-color: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.3);
-  
+
+  /* 全局超平滑物理缓动与弹簧动画体系 (Apple / Linear 标准 - 平滑柔和微交互) */
+  --ease-out-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-smooth: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-transform: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-press: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+  --transition-fast: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-theme: background-color 0.38s cubic-bezier(0.16, 1, 0.3, 1), background 0.38s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.38s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s ease, box-shadow 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 现代高级质感连续曲率体系 (Squircle & Refined Radii - 告别廉价胶囊堆叠) */
+  --radius-micro: 4px;
+  --radius-badge: 6px;
+  --radius-xs: 8px;
+  --radius-sm: 10px;
+  --radius-control: 10px;
+  --radius-island: 12px;
+  --radius-md: 14px;
+  --radius-card: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+}
+
+/* ==========================================================================
+   夜间模式 (默认/Dark Theme) - 星海深空绀青·极光微光·霓虹多色点缀
+   ========================================================================== */
+:root,
+:root[data-theme="dark"],
+.dark-theme {
+  --theme-mode: dark;
+
+  /* 背景基底与星云渐晕 (拒绝死板纯黑) */
+  --bg-color: #070913;
+  --bg-app: #070913;
+  --bg-gradient: radial-gradient(circle at 10% 15%, rgba(99, 102, 241, 0.14) 0%, transparent 45%),
+                      radial-gradient(circle at 90% 10%, rgba(168, 85, 247, 0.13) 0%, transparent 40%),
+                      radial-gradient(circle at 50% 85%, rgba(6, 182, 212, 0.12) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 80%, rgba(244, 63, 94, 0.08) 0%, transparent 40%),
+                      #070913;
+
+  /* 头部与浮层背景 */
+  --header-bg: rgba(11, 14, 25, 0.78);
+  --header-border: rgba(255, 255, 255, 0.08);
+
+  /* 卡片与面板质感 (深邃晶体毛玻璃) */
+  --bg-card: rgba(16, 21, 37, 0.72);
+  --bg-card-hover: rgba(23, 30, 52, 0.85);
+  --bg-card-solid: #0d1222;
+  --bg-surface-elevated: #141b2f;
+  --bg-subtle: rgba(255, 255, 255, 0.04);
+  --bg-subtle-hover: rgba(255, 255, 255, 0.08);
+  --bg-input: rgba(10, 14, 26, 0.7);
+
+  /* 边框与控制岛体系 */
+  --border-color: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-divider: rgba(255, 255, 255, 0.08);
+  --border-highlight: rgba(255, 255, 255, 0.18);
+  --border-focus: rgba(129, 140, 248, 0.65);
+  --bg-control-island: rgba(14, 18, 32, 0.85);
+  --bg-control-segment: rgba(255, 255, 255, 0.04);
+  --bg-control-segment-active: rgba(255, 255, 255, 0.1);
+  --shadow-island: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* 文本系统 */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
-  
-  /* 辅助状态色 */
+  --text-inverse: #0f172a;
+
+  /* 主行动色与渐变 */
+  --primary-color: #6366f1;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+  --primary-gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%);
+  --accent-color: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+
+  /* 多彩点缀色系统 (夜间璀璨灵动) */
+  --accent-cyan: #38bdf8;
+  --accent-cyan-bg: rgba(56, 189, 248, 0.12);
+  --accent-purple: #c084fc;
+  --accent-purple-bg: rgba(192, 132, 252, 0.14);
+  --accent-coral: #fb7185;
+  --accent-coral-bg: rgba(251, 113, 133, 0.14);
+  --accent-emerald: #34d399;
+  --accent-emerald-bg: rgba(52, 211, 153, 0.14);
+  --accent-amber: #fbbf24;
+  --accent-amber-bg: rgba(251, 191, 36, 0.14);
+  --accent-indigo: #818cf8;
+  --accent-indigo-bg: rgba(129, 140, 248, 0.15);
+
+  /* 状态色 */
   --color-success: #10b981;
   --color-error: #f43f5e;
   --color-warning: #f59e0b;
-  
-  /* 毛玻璃效果 */
+  --color-info: #6366f1;
+
+  /* 阴影体系 */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px -4px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px -6px rgba(0, 0, 0, 0.6);
+  --glass-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glow-shadow: 0 0 25px rgba(99, 102, 241, 0.35);
+
+  /* 画布网格点 */
+  --canvas-grid-dot: rgba(255, 255, 255, 0.12);
+  --canvas-grid-line: rgba(255, 255, 255, 0.035);
+
+  /* 毛玻璃模糊 */
   --glass-blur: blur(20px);
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  
-  /* 动画过渡时间 */
-  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-fast: all 0.15s ease;
 }
 
+/* ==========================================================================
+   日间模式 (Light Theme) - 晨曦珠光·温润白玉·柔和莫兰迪多彩点缀 (绝不刺眼)
+   ========================================================================== */
+:root[data-theme="light"],
+.light-theme {
+  --theme-mode: light;
+
+  /* 背景基底：非死板苍白，带有极度柔和的晨曦暖紫与冰蓝环境漫反射 */
+  --bg-color: #f4f6fb;
+  --bg-app: #f4f6fb;
+  --bg-gradient: radial-gradient(circle at 10% 12%, rgba(224, 231, 255, 0.65) 0%, transparent 45%),
+                      radial-gradient(circle at 90% 15%, rgba(243, 232, 255, 0.7) 0%, transparent 45%),
+                      radial-gradient(circle at 50% 90%, rgba(224, 242, 254, 0.6) 0%, transparent 50%),
+                      radial-gradient(circle at 85% 75%, rgba(254, 226, 226, 0.45) 0%, transparent 40%),
+                      #f4f6fb;
+
+  /* 头部与浮层背景 */
+  --header-bg: rgba(255, 255, 255, 0.82);
+  --header-border: rgba(99, 102, 241, 0.1);
+
+  /* 卡片与面板质感 (温润透亮白玉微霜磨砂) */
+  --bg-card: rgba(255, 255, 255, 0.8);
+  --bg-card-hover: rgba(255, 255, 255, 0.94);
+  --bg-card-solid: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: rgba(99, 102, 241, 0.04);
+  --bg-subtle-hover: rgba(99, 102, 241, 0.08);
+  --bg-input: rgba(245, 247, 252, 0.9);
+
+  /* 边框与控制岛体系 */
+  --border-color: rgba(99, 102, 241, 0.12);
+  --border-subtle: rgba(148, 163, 184, 0.18);
+  --border-divider: rgba(99, 102, 241, 0.1);
+  --border-highlight: rgba(255, 255, 255, 0.9);
+  --border-focus: rgba(99, 102, 241, 0.55);
+  --bg-control-island: rgba(255, 255, 255, 0.88);
+  --bg-control-segment: rgba(99, 102, 241, 0.05);
+  --bg-control-segment-active: #ffffff;
+  --shadow-island: 0 4px 16px -2px rgba(99, 102, 241, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  /* 文本系统 (柔和石墨深色，清晰且绝不刺目) */
+  --text-primary: #1e2433;
+  --text-secondary: #475569;
+  --text-muted: #8291a5;
+  --text-inverse: #ffffff;
+
+  /* 主行动色与渐变 */
+  --primary-color: #6366f1;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  --primary-gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+  --accent-color: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.2);
+
+  /* 多彩点缀色系统 (日间柔和鲜活、优雅和谐) */
+  --accent-cyan: #0284c7;
+  --accent-cyan-bg: rgba(2, 132, 199, 0.1);
+  --accent-purple: #7c3aed;
+  --accent-purple-bg: rgba(124, 58, 237, 0.1);
+  --accent-coral: #e11d48;
+  --accent-coral-bg: rgba(225, 29, 72, 0.1);
+  --accent-emerald: #059669;
+  --accent-emerald-bg: rgba(5, 150, 105, 0.1);
+  --accent-amber: #d97706;
+  --accent-amber-bg: rgba(217, 119, 6, 0.1);
+  --accent-indigo: #4f46e5;
+  --accent-indigo-bg: rgba(79, 70, 229, 0.1);
+
+  /* 状态色 */
+  --color-success: #059669;
+  --color-error: #e11d48;
+  --color-warning: #d97706;
+  --color-info: #4f46e5;
+
+  /* 阴影体系 (柔和细腻的高斯漫反射投影) */
+  --shadow-sm: 0 2px 6px rgba(30, 41, 59, 0.04);
+  --shadow-md: 0 8px 20px -3px rgba(30, 41, 59, 0.06), 0 2px 6px -1px rgba(99, 102, 241, 0.04);
+  --shadow-lg: 0 16px 36px -4px rgba(30, 41, 59, 0.08), 0 4px 12px -2px rgba(99, 102, 241, 0.06);
+  --glass-shadow: 0 10px 32px -4px rgba(30, 41, 59, 0.07), 0 2px 8px 0 rgba(99, 102, 241, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glow-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+
+  /* 画布网格点 */
+  --canvas-grid-dot: rgba(99, 102, 241, 0.18);
+  --canvas-grid-line: rgba(99, 102, 241, 0.05);
+
+  /* 毛玻璃模糊 */
+  --glass-blur: blur(20px);
+}
+
+/* ==========================================================================
+   全局重置与排版规范
+   ========================================================================== */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-body {
+html, body {
   font-family: var(--font-family);
   background-color: var(--bg-color);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed;
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
   width: 100vw;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: var(--transition-theme);
 }
 
 #app {
@@ -54,7 +232,7 @@ body {
   width: 100%;
 }
 
-/* 自定义滚动条 */
+/* 精致自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -65,15 +243,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 99px;
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(148, 163, 184, 0.45);
 }
 
-/* 按钮微交互 */
+/* 按钮微交互手感 (Tactile Feedback - 平滑柔和微按压) */
 button {
   font-family: var(--font-family);
   cursor: pointer;
@@ -81,42 +259,30 @@ button {
   outline: none;
   background: none;
   color: inherit;
-  transition: var(--transition-fast);
+  transition: var(--transition-smooth);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:active {
-  transform: scale(0.96);
+  transform: scale(0.965);
+  transition: var(--transition-press);
 }
 
-/* 磨砂玻璃通用卡片 */
+/* 输入控件丝滑聚焦过渡 */
+input, textarea, select {
+  transition: border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s ease;
+}
+
+/* 通用磨砂玻璃圆润卡片 (Bento Soft Card) */
 .glass-panel {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   box-shadow: var(--glass-shadow);
-}
-
-/* 旋转动画 */
-@keyframes rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* 呼吸灯动画 */
-@keyframes pulse {
-  0%, 100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-    text-shadow: 0 0 8px var(--accent-color);
-  }
+  transition: var(--transition-theme);
 }
 
 /* 骨架屏加载动画 */
@@ -130,7 +296,32 @@ button:active {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 37%, rgba(255, 255, 255, 0.03) 63%);
+  background: linear-gradient(90deg, var(--bg-subtle) 25%, var(--bg-subtle-hover) 37%, var(--bg-subtle) 63%);
   background-size: 400% 100%;
   animation: skeleton-loading 1.4s ease infinite;
+}
+
+/* 优雅发光与脉冲 */
+@keyframes soft-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* 极光流光背景动画 (用于特殊高光按钮与徽章) */
+@keyframes aurora-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }

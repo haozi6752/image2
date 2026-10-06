@@ -148,9 +148,9 @@ const download = () => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(4, 6, 12, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(6, 8, 16, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   z-index: 2000;
   display: flex;
   flex-direction: column;
@@ -160,60 +160,48 @@ const download = () => {
 /* 顶部工具栏 */
 .lightbox-toolbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  padding: 16px 24px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 100%);
+  padding: 18px 28px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0) 100%);
   z-index: 2100;
-}
-
-.info-tag {
-  max-width: 60%;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 8px 16px;
-  border-radius: 12px;
-}
-
-.prompt-text {
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
 }
 
 .toolbar-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .tool-btn {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-  border-radius: 10px;
-  width: 40px;
-  height: 40px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-radius: var(--radius-pill);
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: var(--transition-fast);
+  transition: var(--transition-smooth);
+  backdrop-filter: blur(8px);
 }
 
 .tool-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-primary);
+  background: var(--primary-color);
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px var(--accent-glow);
 }
 
 .tool-btn.close:hover {
   background: var(--color-error);
-  color: #fff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
 }
 
 .tool-btn.download:hover {
   background: var(--color-success);
-  color: #fff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
 }
 
 /* 图片区域 */
@@ -232,16 +220,16 @@ const download = () => {
   max-width: 90%;
   max-height: 85vh;
   object-fit: contain;
-  box-shadow: 0 25px 60px rgba(0,0,0,0.8);
-  border-radius: 8px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.85);
+  border-radius: var(--radius-lg);
   user-select: none;
-  transition: transform 0.1s ease-out; /* 顺滑拖动 */
+  transition: transform 0.1s ease-out;
 }
 
-/* 灯箱淡入淡出 */
+/* 灯箱淡入淡出 (平滑弹性缩放与高斯模糊) */
 .lightbox-fade-enter-active,
 .lightbox-fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .lightbox-fade-enter-from,
@@ -251,10 +239,12 @@ const download = () => {
 
 .lightbox-fade-enter-active .lightbox-img,
 .lightbox-fade-leave-active .lightbox-img {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
 }
 
-.lightbox-fade-enter-from .lightbox-img {
-  transform: scale(0.9) translateY(20px);
+.lightbox-fade-enter-from .lightbox-img,
+.lightbox-fade-leave-to .lightbox-img {
+  transform: scale(0.92) translateY(18px);
+  opacity: 0;
 }
 </style>

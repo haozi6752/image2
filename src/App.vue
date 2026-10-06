@@ -1,61 +1,129 @@
 <template>
   <div class="app-wrapper">
-    <!-- 顶部状态栏与导航 -->
-    <header class="app-header glass-panel">
+    <!-- 顶部通栏状态栏与导航 (无悬浮胶囊外壳，完全贴顶通栏) -->
+    <header class="app-header">
       <!-- 左侧：品牌 Logo -->
       <div class="header-logo">
         <div class="logo-glow"></div>
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="logo-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <div class="logo-icon-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="logo-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        </div>
         <div class="logo-text">
-          <h1>智能生图工坊</h1>
+          <h1 class="brand-title">智能生图工坊</h1>
         </div>
       </div>
 
-      <!-- 中间：顶部悬浮双页切换按钮 (灵感画布 vs 成果画廊) -->
-      <div class="nav-segment-control">
+      <!-- 中间：沉浸式极简双页导航 (无胶囊底壳，直接纯净选项与滑动指示光) -->
+      <nav class="header-nav-tabs">
         <button 
-          class="nav-tab-btn" 
+          class="nav-tab-item" 
           :class="{ active: currentTab === 'canvas' }"
           @click="currentTab = 'canvas'"
-          title="节点式无限探索画布，支持图与图多轮参考衍生"
+          title="节点式无限探索画布，支持多图参考融合衍生"
         >
-          <span class="tab-icon">🎨</span>
-          <span class="tab-label">灵感画布</span>
+          <span class="nav-tab-indicator" v-if="currentTab === 'canvas'"></span>
+          <span class="tab-name">灵感画布</span>
         </button>
         <button 
-          class="nav-tab-btn" 
+          class="nav-tab-item" 
           :class="{ active: currentTab === 'gallery' }"
           @click="currentTab = 'gallery'"
           title="浏览已生成的历史画作档案"
         >
-          <span class="tab-icon">🖼️</span>
-          <span class="tab-label">成果画廊</span>
-          <span v-if="historyList.length > 0" class="history-count-badge">{{ historyList.length }}</span>
+          <span class="nav-tab-indicator" v-if="currentTab === 'gallery'"></span>
+          <span class="tab-name">成果画廊</span>
+          <span v-if="historyList.length > 0" class="history-count-num">{{ historyList.length }}</span>
         </button>
-      </div>
+      </nav>
 
-      <!-- 右上角控制 -->
-      <div class="header-controls">
-        <!-- 方案快捷切换 -->
-        <div class="profile-quick-switch" v-if="apiProfiles.length > 0">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="profile-icon"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-          <select 
-            v-model="activeProfileId" 
-            @change="handleProfileSwitch"
-            class="profile-select"
+      <!-- 右上角：沉浸式原生功能组 (无外层胶囊岛，纯净幽灵交互 + 悬停微光) -->
+      <div class="header-actions">
+        <!-- 方案快捷切换 (全新自定义毛玻璃极简浮动菜单，风格完全统一) -->
+        <div class="profile-dropdown-wrapper" v-if="apiProfiles.length > 0" ref="profileDropdownRef">
+          <button 
+            class="header-action-item profile-trigger-btn"
+            :class="{ 'open': isProfileMenuOpen }"
+            @click.stop="isProfileMenuOpen = !isProfileMenuOpen"
+            title="点击切换当前生图方案"
           >
-            <option v-for="p in apiProfiles" :key="p.id" :value="p.id">
-              {{ p.provider ? `[${p.provider}] ` : '' }}{{ p.name }}
-            </option>
-          </select>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="action-icon profile-icon"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <span class="active-profile-name">{{ activeProfile?.name || '选择方案' }}</span>
+            <svg class="select-chevron" :class="{ 'rotated': isProfileMenuOpen }" xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+
+          <!-- 自定义浮动毛玻璃下拉菜单 -->
+          <Transition name="dropdown-pop">
+            <div v-if="isProfileMenuOpen" class="profile-dropdown-menu glass-panel" @click.stop>
+              <div class="dropdown-menu-header">
+                <span class="dropdown-menu-title">切换服务商方案</span>
+                <span class="profile-count">{{ apiProfiles.length }} 个方案</span>
+              </div>
+              <div class="profile-options-list">
+                <div 
+                  v-for="p in apiProfiles" 
+                  :key="p.id" 
+                  class="profile-option-row"
+                  :class="{ 'active': p.id === activeProfileId }"
+                  @click="selectProfileFromMenu(p.id)"
+                >
+                  <div class="option-row-left">
+                    <span class="option-indicator" :class="{ 'active': p.id === activeProfileId }"></span>
+                    <span class="option-name">{{ p.name }}</span>
+                  </div>
+                  <span class="option-provider-tag" v-if="p.provider">{{ p.provider }}</span>
+                </div>
+              </div>
+              <div class="dropdown-menu-footer">
+                <button class="footer-manage-btn" @click="openSettingsFromDropdown">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                  <span>管理与添加配置方案</span>
+                </button>
+              </div>
+            </div>
+          </Transition>
         </div>
 
-        <div class="api-status-badge" :class="{ 'configured': isApiConfigured }">
-          <span class="status-dot"></span>
-          <span class="status-text">{{ isApiConfigured ? 'API 已配置' : 'API 未设置' }}</span>
+        <!-- API 连接状态 (仅呼吸光点 + 柔和状态字，零边框) -->
+        <div 
+          class="header-action-item api-status" 
+          :class="{ 'configured': isApiConfigured }"
+          :title="isApiConfigured ? 'API 连接正常' : 'API 未配置，点击打开配置'"
+          @click="!isApiConfigured ? isSettingsOpen = true : null"
+        >
+          <span class="status-pulse-dot"></span>
+          <span class="status-label">{{ isApiConfigured ? '已就绪' : '未配置' }}</span>
         </div>
-        <button class="icon-btn settings-btn" @click="isSettingsOpen = true" title="配置 API 服务商与方案">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="settings-gear"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+
+        <!-- 日间 / 夜间 模式无缝切换 -->
+        <button 
+          class="header-action-item theme-toggle" 
+          @click="toggleTheme" 
+          :title="currentTheme === 'dark' ? '切换为雅致日间模式' : '切换为深邃夜间模式'"
+        >
+          <span class="theme-icon-slot">
+            <!-- 太阳图标 (日间) -->
+            <svg v-if="currentTheme === 'light'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon sun">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <!-- 月亮图标 (夜间) -->
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon moon">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </span>
+          <span class="action-text">{{ currentTheme === 'dark' ? '夜间' : '日间' }}</span>
+        </button>
+
+        <!-- API 设置弹窗触发入口 -->
+        <button class="header-action-item settings-entry" @click="isSettingsOpen = true" title="配置 API 服务商与模型方案">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="settings-gear"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
       </div>
     </header>
@@ -134,7 +202,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PromptInput from './components/PromptInput.vue';
@@ -155,9 +223,28 @@ import {
 // 当前页面标签：'canvas' (灵感画布) | 'gallery' (成果画廊)
 const currentTab = ref('canvas');
 
+// 主题状态：'dark' (夜间·星海绀青) | 'light' (日间·晨曦暖白微彩)
+const currentTheme = ref('dark');
+
+const applyTheme = () => {
+  document.documentElement.setAttribute('data-theme', currentTheme.value);
+  localStorage.setItem('app_theme_mode', currentTheme.value);
+};
+
+const toggleTheme = () => {
+  currentTheme.value = currentTheme.value === 'dark' ? 'light' : 'dark';
+  applyTheme();
+  showToastMsg({ 
+    message: currentTheme.value === 'dark' ? '已切换至深邃夜间模式' : '已切换至温润日间模式', 
+    type: 'info' 
+  });
+};
+
 // API 配置与多方案管理状态
 const apiProfiles = ref([]);
 const activeProfileId = ref('');
+const isProfileMenuOpen = ref(false);
+const profileDropdownRef = ref(null);
 
 const activeProfile = computed(() => {
   return apiProfiles.value.find(p => p.id === activeProfileId.value) || null;
@@ -166,6 +253,27 @@ const activeProfile = computed(() => {
 const isApiConfigured = computed(() => {
   return activeProfile.value?.apiKey?.trim()?.length > 0;
 });
+
+// 方案菜单选择
+const selectProfileFromMenu = (profileId) => {
+  activeProfileId.value = profileId;
+  saveProfilesToStorage();
+  isProfileMenuOpen.value = false;
+  showToastMsg({ message: `已切换至方案：${activeProfile.value?.name}`, type: 'success' });
+};
+
+// 从下拉菜单直接打开配置面板
+const openSettingsFromDropdown = () => {
+  isProfileMenuOpen.value = false;
+  isSettingsOpen.value = true;
+};
+
+// 全局监听点击外部收起下拉菜单
+const handleGlobalClick = (e) => {
+  if (isProfileMenuOpen.value && profileDropdownRef.value && !profileDropdownRef.value.contains(e.target)) {
+    isProfileMenuOpen.value = false;
+  }
+};
 
 const uploadedImageB64 = ref('');
 const usePersonalPrompt = ref(false);
@@ -234,6 +342,17 @@ const handleProfileSwitch = () => {
 
 // 初始化：平滑迁移历史至 IndexedDB，彻底根除 localStorage 5MB 限制
 onMounted(async () => {
+  // 0. 初始化主题偏好
+  const savedTheme = localStorage.getItem('app_theme_mode');
+  if (savedTheme === 'light' || savedTheme === 'dark') {
+    currentTheme.value = savedTheme;
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+    currentTheme.value = 'light';
+  } else {
+    currentTheme.value = 'dark';
+  }
+  applyTheme();
+
   // 1. 初始化方案配置
   const savedProfiles = localStorage.getItem('api_profiles');
   const savedActiveId = localStorage.getItem('active_profile_id');
@@ -280,6 +399,13 @@ onMounted(async () => {
   } catch (e) {
     console.error('IndexedDB 历史加载失败:', e);
   }
+
+  // 监听全局点击以关闭方案菜单
+  window.addEventListener('click', handleGlobalClick);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleGlobalClick);
 });
 
 // 解析 IndexedDB 离线缓存
@@ -611,201 +737,437 @@ const closePreview = () => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: var(--bg-primary);
+  background-color: transparent;
   color: var(--text-primary);
+  transition: var(--transition-theme);
 }
 
-/* 顶部栏 */
+/* 顶部通栏 - 完全贴顶、无悬浮外围大胶囊、纯粹一体通栏 */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 24px;
-  height: 62px;
+  padding: 0 20px;
+  height: 54px;
   z-index: 100;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(12, 14, 22, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  border-radius: 0 !important;
+  border: none;
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--header-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.03);
+  transition: var(--transition-theme);
 }
 
 .header-logo {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   position: relative;
+  user-select: none;
 }
 
 .logo-glow {
   position: absolute;
+  left: 0;
   width: 28px;
   height: 28px;
   background: var(--primary-gradient);
   filter: blur(12px);
-  opacity: 0.6;
+  opacity: 0.45;
   border-radius: 50%;
 }
 
-.logo-icon {
-  color: #818cf8;
+.logo-icon-wrapper {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--primary-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 3px 12px var(--accent-glow);
   z-index: 1;
+  transition: transform 0.25s ease;
+}
+
+.logo-icon-wrapper:hover {
+  transform: rotate(4deg) scale(1.05);
 }
 
 .logo-text {
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
-.logo-text h1 {
-  font-size: 1rem;
+.brand-title {
+  font-size: 0.98rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
   margin: 0;
+  color: var(--text-primary);
 }
 
-.version-tag {
-  font-size: 0.65rem;
-  background: linear-gradient(135deg, #6366f1, #a855f7);
-  color: #fff;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-weight: 700;
-}
-
-/* 核心：顶部中央悬浮双页胶囊控制器 */
-.nav-segment-control {
+/* 核心：中央双页导航 (彻底去除胶囊底壳！纯净文本 + 滑动光感指示器) */
+.header-nav-tabs {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 3px;
-  border-radius: 30px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  gap: 4px;
+  position: relative;
 }
 
-.nav-tab-btn {
+.nav-tab-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
-  border-radius: 24px;
+  padding: 6px 14px;
+  border-radius: 6px;
   border: none;
   background: transparent;
-  color: #94a3b8;
-  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: var(--transition-smooth);
 }
 
-.nav-tab-btn:hover {
-  color: #f1f5f9;
+.nav-tab-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle-hover);
 }
 
-.nav-tab-btn.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(168, 85, 247, 0.9));
-  color: #ffffff;
+.nav-tab-item.active {
+  color: var(--text-primary);
   font-weight: 600;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+  background: var(--bg-subtle);
 }
 
-.tab-icon {
-  font-size: 0.95rem;
+.nav-tab-indicator {
+  position: absolute;
+  bottom: -9px;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  background: var(--primary-gradient);
+  box-shadow: 0 0 10px var(--accent-glow);
+  border-radius: 2px;
 }
 
-.history-count-badge {
-  font-size: 0.68rem;
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
+.history-count-num {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-indigo);
+  opacity: 0.85;
+  margin-left: 1px;
 }
 
-/* 右上角方案与状态 */
-.header-controls {
+/* 核心：右上角原生交互组 (彻底去除胶囊岛框！幽灵交互 + 悬停微光聚光灯) */
+.header-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 4px;
 }
 
-.profile-quick-switch {
+.header-action-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 4px 10px;
-  border-radius: 8px;
-}
-
-.profile-icon {
-  color: #818cf8;
-}
-
-.profile-select {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
   background: transparent;
   border: none;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   font-size: 0.78rem;
-  outline: none;
+  font-weight: 500;
   cursor: pointer;
-  max-width: 160px;
+  transition: var(--transition-smooth);
 }
 
-.profile-select option {
-  background: #12141d;
-  color: #e2e8f0;
+.header-action-item:hover {
+  background: var(--bg-subtle-hover);
+  color: var(--text-primary);
 }
 
-.api-status-badge {
+/* 方案快速选择：全新自定义毛玻璃极简浮动菜单 (统一视觉语言，彻底告别丑陋原生 select) */
+.profile-dropdown-wrapper {
+  position: relative;
+  user-select: none;
+}
+
+.profile-trigger-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 4px 10px;
-  border-radius: 20px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--bg-subtle);
+  border: 1px solid transparent;
+  transition: var(--transition-smooth);
+}
+
+.profile-trigger-btn:hover {
+  background: var(--bg-subtle-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.profile-trigger-btn.open {
+  background: var(--primary-gradient-subtle);
+  color: var(--primary-color);
+  box-shadow: 0 0 14px var(--accent-glow);
+  transform: none;
+}
+
+.action-icon.profile-icon {
+  color: var(--accent-purple);
+  flex-shrink: 0;
+}
+
+.active-profile-name {
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.select-chevron {
+  color: var(--text-muted);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-left: 2px;
+}
+
+.select-chevron.rotated {
+  transform: rotate(180deg);
+  color: var(--primary-color);
+}
+
+/* 浮动下拉菜单面板 */
+.profile-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  transform-origin: top right;
+}
+
+.dropdown-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 8px 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 6px;
+}
+
+.dropdown-menu-title {
   font-size: 0.72rem;
-  color: #94a3b8;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
 }
 
-.status-dot {
-  width: 6px;
-  height: 6px;
+.profile-count {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  padding: 1px 6px;
+  border-radius: var(--radius-micro);
+}
+
+.profile-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.profile-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.profile-option-row:hover {
+  background: var(--bg-subtle-hover);
+}
+
+.profile-option-row.active {
+  background: var(--primary-gradient-subtle);
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.option-row-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.option-indicator {
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: #ef4444;
+  background: transparent;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
 }
 
-.api-status-badge.configured .status-dot {
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
+.option-indicator.active {
+  background: var(--primary-color);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
-.icon-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  width: 34px;
-  height: 34px;
+.option-name {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.option-provider-tag {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: var(--radius-micro);
+  background: var(--bg-subtle);
+  flex-shrink: 0;
+}
+
+.dropdown-menu-footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+.footer-manage-btn {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all 0.2s;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  transition: var(--transition-smooth);
 }
 
-.icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.footer-manage-btn:hover {
+  background: var(--primary-gradient-subtle);
+  color: var(--primary-color);
+}
+
+/* 下拉菜单平滑弹出动画 (柔和缩放与微平移) */
+.dropdown-pop-enter-active,
+.dropdown-pop-leave-active {
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropdown-pop-enter-from,
+.dropdown-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.96);
+}
+
+/* API 状态指示 (极简呼吸微光，零边框) */
+.api-status {
+  user-select: none;
+}
+
+.status-pulse-dot {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background: var(--color-error);
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.45);
+  transition: var(--transition-smooth);
+}
+
+.api-status.configured .status-pulse-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.status-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.api-status.configured .status-label {
+  color: var(--text-primary);
+}
+
+/* 主题模式切换 */
+.theme-toggle {
+  font-weight: 500;
+}
+
+.theme-icon-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-icon.sun {
+  color: #f59e0b;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.4));
+}
+
+.theme-icon.moon {
+  color: #818cf8;
+  filter: drop-shadow(0 0 4px rgba(129, 140, 248, 0.4));
+}
+
+.action-text {
+  font-size: 0.75rem;
+}
+
+/* 设置入口 */
+.settings-entry {
+  padding: 0 8px;
+  justify-content: center;
+}
+
+.settings-entry:hover .settings-gear {
+  transform: rotate(45deg);
+  color: var(--primary-color);
+}
+
+.settings-gear {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
 }
 
 /* 主体区域 */
 .app-main {
   display: flex;
   flex: 1;
-  height: calc(100vh - 62px);
+  height: calc(100vh - 64px);
   overflow: hidden;
   position: relative;
 }
@@ -860,45 +1222,49 @@ const closePreview = () => {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  background: rgba(18, 20, 29, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  z-index: 1000;
+  gap: 10px;
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  font-size: 0.86rem;
+  font-weight: 500;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  z-index: 2500;
+  transition: var(--transition-theme);
 }
 
 .toast-notification.success {
   border-color: rgba(16, 185, 129, 0.4);
-  color: #34d399;
+  color: var(--color-success);
 }
 
 .toast-notification.error {
   border-color: rgba(239, 68, 68, 0.4);
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .toast-notification.info {
   border-color: rgba(99, 102, 241, 0.4);
-  color: #818cf8;
+  color: var(--accent-indigo);
 }
 
 .toast-notification.warning {
   border-color: rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .slide-toast-enter-active,
 .slide-toast-leave-active {
-  transition: all 0.25s ease;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .slide-toast-enter-from,
 .slide-toast-leave-to {
   opacity: 0;
-  transform: translate(-50%, -15px);
+  transform: translate(-50%, -16px) scale(0.95);
 }
 </style>
