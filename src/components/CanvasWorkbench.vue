@@ -537,8 +537,8 @@ const panY = ref(100);
 const scale = ref(0.9);
 const toolMode = ref('grab'); // 'grab' | 'pointer'
 const isPanning = ref(false);
-const startPanX = ref(0);
-const startPanY = ref(0);
+let startPanX = 0;
+let startPanY = 0;
 
 // 选中的节点与提示词气泡弹层状态
 const selectedNodeId = ref(null);
@@ -1018,19 +1018,21 @@ const copyPromptText = (text, nodeId) => {
 // 画布上的图片节点数组
 const imageNodes = ref([]);
 
-// 视口变换样式 (采用整数像素平移，消除亚像素抖动与模糊)
+// 视口变换样式 (采用硬件加速 translate3d，消除亚像素抖动与重绘)
 const worldTransformStyle = computed(() => {
   return {
-    transform: `translate(${Math.round(panX.value)}px, ${Math.round(panY.value)}px) scale(${scale.value})`
+    transform: `translate3d(${Math.round(panX.value)}px, ${Math.round(panY.value)}px, 0) scale(${scale.value})`
   };
 });
 
-// 背景网格随平移与缩放动态平铺
+// 背景网格随平移与缩放动态硬件平移 (关键优化：固定 backgroundPosition: 0 0，仅使用 translate3d 偏移取模，彻底消除每帧全屏 Repaint 重绘)
 const gridBackgroundStyle = computed(() => {
   const gridSize = 32 * scale.value;
+  const offsetX = Math.round(((panX.value % gridSize) + gridSize) % gridSize);
+  const offsetY = Math.round(((panY.value % gridSize) + gridSize) % gridSize);
   return {
     backgroundSize: `${gridSize}px ${gridSize}px`,
-    backgroundPosition: `${panX.value}px ${panY.value}px`
+    transform: `translate3d(${offsetX}px, ${offsetY}px, 0)`
   };
 });
 
@@ -1288,8 +1290,8 @@ const onViewportMouseDown = (e) => {
   // 如果是鼠标中键或者当前为抓手模式，且不是右键
   if (e.button === 1 || (e.button === 0 && toolMode.value === 'grab')) {
     isPanning.value = true;
-    startPanX.value = e.clientX - panX.value;
-    startPanY.value = e.clientY - panY.value;
+    startPanX = e.clientX - panX.value;
+    startPanY = e.clientY - panY.value;
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }
@@ -1322,8 +1324,8 @@ const flushMouseDrag = () => {
 
 const onMouseMove = (e) => {
   if (isPanning.value) {
-    pendingPanX = e.clientX - startPanX.value;
-    pendingPanY = e.clientY - startPanY.value;
+    pendingPanX = Math.round(e.clientX - startPanX);
+    pendingPanY = Math.round(e.clientY - startPanY);
     if (!dragRafId) {
       dragRafId = requestAnimationFrame(flushMouseDrag);
     }
@@ -1745,8 +1747,115 @@ const fitNodesInView = (nodes) => {
   animateViewportSmooth(targetPanX, targetPanY, targetScale, 480);
 };
 
+// 核心排版辅助：智能寻找创作窗口四周最近且无碰撞重叠的舒适空槽位 (支持 360° 四周有机分布，连线拉长)
+const findSmartSurroundingSlot = (targetWin, isReference = false) => {
+  const win = targetWin || activeConfigNode.value || creationWindows.value[0];
+  const el = win ? winEls.get(win.id) : null;
+  const winW = el?.offsetWidth || 440;
+  const winH = el?.offsetHeight || 360;
+  const winCenterX = win ? (win.x + winW / 2) : 320;
+  const winCenterY = win ? (win.y + winH / 2) : 300;
+
+  const CARD_W = 280;
+  const CARD_H = 330;
+
+  // 严格无碰撞判定 (带充足呼吸安全边距：横向 50px，纵向 50px)
+  const hasCollision = (x, y) => {
+    // 检查与创作窗口的碰撞
+    for (const w of creationWindows.value) {
+      const wel = winEls.get(w.id);
+      const wW = wel?.offsetWidth || 440;
+      const wH = wel?.offsetHeight || 360;
+      const wCenterX = w.x + wW / 2;
+      const wCenterY = w.y + wH / 2;
+      if (
+        Math.abs((x + CARD_W / 2) - wCenterX) < (CARD_W + wW) / 2 + 50 &&
+        Math.abs((y + CARD_H / 2) - wCenterY) < (CARD_H + wH) / 2 + 50
+      ) {
+        return true;
+      }
+    }
+    // 检查与已有图片节点的碰撞
+    for (const node of imageNodes.value) {
+      const nW = node.width || CARD_W;
+      const nH = getNodeHeight(node);
+      const nCenterX = node.x + nW / 2;
+      const nCenterY = node.y + nH / 2;
+      if (
+        Math.abs((x + CARD_W / 2) - nCenterX) < (CARD_W + nW) / 2 + 45 &&
+        Math.abs((y + CARD_H / 2) - nCenterY) < (CARD_H + nH) / 2 + 45
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 环绕八方向角度序列 (四周均匀分布，绝不单侧拥挤)
+  // 参考图优先：正左(西)、左上(西北)、左下(西南)、正上(北)、正下(南)、右上(东北)、右下(东南)、正右(东)
+  const refAngles = [
+    Math.PI,           // 西
+    Math.PI * 0.75,    // 西北
+    Math.PI * 1.25,    // 西南
+    -Math.PI * 0.5,    // 北
+    Math.PI * 0.5,     // 南
+    -Math.PI * 0.25,   // 东北
+    Math.PI * 0.25,    // 东南
+    0                  // 东
+  ];
+
+  // 普通图/成果图优先：正右(东)、右上(东北)、右下(东南)、正上(北)、正下(南)、西北、西南、西
+  const genAngles = [
+    0,                 // 东
+    -Math.PI * 0.25,   // 东北
+    Math.PI * 0.25,    // 东南
+    -Math.PI * 0.5,    // 北
+    Math.PI * 0.5,     // 南
+    Math.PI * 0.75,    // 西北
+    Math.PI * 1.25,    // 西南
+    Math.PI            // 西
+  ];
+
+  const angleSequence = isReference ? refAngles : genAngles;
+
+  // 扩展多层轨道半径：基准 rx = 650, ry = 500 (大幅拉长连线，如用户图二般的呼吸感)
+  const rings = [
+    { rx: 650, ry: 500 },
+    { rx: 1020, ry: 820 },
+    { rx: 1380, ry: 1140 }
+  ];
+
+  for (const ring of rings) {
+    for (const angle of angleSequence) {
+      const candidateX = Math.round(winCenterX + ring.rx * Math.cos(angle) - CARD_W / 2);
+      const candidateY = Math.round(winCenterY + ring.ry * Math.sin(angle) - CARD_H / 2);
+      if (!hasCollision(candidateX, candidateY)) {
+        return { x: candidateX, y: candidateY };
+      }
+    }
+  }
+
+  // 备用微小角度递进探测
+  for (let r = 520; r < 2000; r += 120) {
+    const steps = Math.max(12, Math.floor(r / 50));
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const candidateX = Math.round(winCenterX + r * Math.cos(angle) - CARD_W / 2);
+      const candidateY = Math.round(winCenterY + (r * 0.8) * Math.sin(angle) - CARD_H / 2);
+      if (!hasCollision(candidateX, candidateY)) {
+        return { x: candidateX, y: candidateY };
+      }
+    }
+  }
+
+  return {
+    x: Math.round(winCenterX + (isReference ? -650 : 650) - CARD_W / 2),
+    y: Math.round(winCenterY - CARD_H / 2)
+  };
+};
+
 // 自动排版对齐：围绕创作窗口四周自然环绕摆放 (Surrounding Orbit Layout)
-// 彻底打破传统的死板列排布，充分利用画布四周无界空间，配合物理高亮贝塞尔连线呈现众星拱月的视觉拓扑
+// 彻底打破传统的死板单一侧排布，连线大幅拉长，四周多向展开，配合物理排斥算法杜绝一切重叠
 const autoOrganizeNodes = () => {
   const CARD_WIDTH = 280;
   const CARD_HEIGHT = 330;
@@ -1758,11 +1867,11 @@ const autoOrganizeNodes = () => {
   const nodeMap = new Map();
   allNodes.forEach(n => nodeMap.set(n.id, n));
 
-  // 1. 排布各个创作窗口的位置 (如果有多个窗口，水平间隔 1100px 依次排开)
+  // 1. 排布各个创作窗口的位置 (多个窗口水平间隔 1600px 依次排开，留出四周环绕卫星星系空间)
   const winMoveList = [];
-  const baseSpacing = 1150;
-  const startX = 600;
-  const startY = 450;
+  const baseSpacing = 1600;
+  const startX = 700;
+  const startY = 550;
 
   creationWindows.value.forEach((win, wIdx) => {
     const winTargetX = startX + wIdx * baseSpacing;
@@ -1813,24 +1922,23 @@ const autoOrganizeNodes = () => {
       }
     });
 
-    // 环绕轨道半轴基础尺寸
-    const baseRx = 460;
-    const baseRy = 340;
+    // 环绕轨道半轴基础尺寸：大幅拉长！基准半径 rx = 680, ry = 520 (连线长达 450~700px，舒适呼吸感)
+    const baseRx = 680;
+    const baseRy = 520;
 
-    // C. 摆放参考图：错落摆放在创作窗口的左半侧及上方四周 (角度从 100° 到 260°)
+    // C. 摆放参考图：在创作窗口的西面(左侧)、西北(左上)、西南(左下)及正北(上方)、正南(下方)等宽阔半环错落展开
     const totalRefs = refIds.length;
     if (totalRefs > 0) {
       refIds.forEach((id, idx) => {
-        // 多圈自适应：每 5 张扩展一圈半径
-        const orbitLayer = Math.floor(idx / 5);
-        const idxInLayer = idx % 5;
-        const countInLayer = Math.min(5, totalRefs - orbitLayer * 5);
-        const rx = baseRx + orbitLayer * 330;
-        const ry = baseRy + orbitLayer * 280;
+        const orbitLayer = Math.floor(idx / 4);
+        const idxInLayer = idx % 4;
+        const countInLayer = Math.min(4, totalRefs - orbitLayer * 4);
+        const rx = baseRx + orbitLayer * 380;
+        const ry = baseRy + orbitLayer * 340;
 
-        // 弧度分布：110°(0.61π) 到 250°(1.39π) 覆盖正上、左上、正左、左下、正下
-        const angleStart = Math.PI * 0.65;
-        const angleEnd = Math.PI * 1.35;
+        // 弧度分布：从 0.58π (北偏西) 经 π (正西) 到 1.42π (南偏西)
+        const angleStart = Math.PI * 0.58;
+        const angleEnd = Math.PI * 1.42;
         const angle = countInLayer === 1 
           ? Math.PI 
           : angleStart + (angleEnd - angleStart) * (idxInLayer / (countInLayer - 1));
@@ -1841,19 +1949,19 @@ const autoOrganizeNodes = () => {
       });
     }
 
-    // D. 摆放衍生图：错落摆放在创作窗口的右半侧及右上方、右下方四周 (角度从 -50° 到 +50°)
+    // D. 摆放衍生图：在创作窗口的东面(右侧)、东北(右上)、东南(右下)及正北、正南等宽阔半环错落展开
     const totalGens = genIds.length;
     if (totalGens > 0) {
       genIds.forEach((id, idx) => {
         const orbitLayer = Math.floor(idx / 4);
         const idxInLayer = idx % 4;
         const countInLayer = Math.min(4, totalGens - orbitLayer * 4);
-        const rx = (baseRx - 20) + orbitLayer * 340;
-        const ry = (baseRy - 10) + orbitLayer * 290;
+        const rx = baseRx + orbitLayer * 380;
+        const ry = baseRy + orbitLayer * 340;
 
-        // 弧度分布：-50°(-0.28π) 到 +50°(0.28π) 错落有致
-        const angleStart = -Math.PI * 0.28;
-        const angleEnd = Math.PI * 0.28;
+        // 弧度分布：从 -0.42π (东北) 经 0 (正东) 到 +0.42π (东南)
+        const angleStart = -Math.PI * 0.42;
+        const angleEnd = Math.PI * 0.42;
         const angle = countInLayer === 1 
           ? 0 
           : angleStart + (angleEnd - angleStart) * (idxInLayer / (countInLayer - 1));
@@ -1865,7 +1973,7 @@ const autoOrganizeNodes = () => {
     }
   });
 
-  // 3. 处理剩余未绑定的自由节点，均匀摆放在活跃创作窗口的外侧四周空槽位
+  // 3. 处理剩余未绑定的自由节点，均匀摆放在活跃创作窗口的正上方、正下方及更广阔的外圈空槽位 (全360度四周分布)
   const unassignedNodes = allNodes.filter(n => !assignedNodeIds.has(n.id));
   if (unassignedNodes.length > 0) {
     const activeWin = activeConfigNode.value || creationWindows.value[0];
@@ -1876,20 +1984,73 @@ const autoOrganizeNodes = () => {
     const winCenterX = targetWinMove.targetX + winW / 2;
     const winCenterY = targetWinMove.targetY + winH / 2;
 
-    const freeRx = 520;
-    const freeRy = 480;
+    const freeRx = 740;
+    const freeRy = 580;
     unassignedNodes.forEach((node, idx) => {
-      // 摆放在偏上方或下方轨道
-      const angle = (idx % 2 === 0 ? -1 : 1) * (Math.PI * 0.5 + (idx * 0.32));
-      const targetX = Math.round(winCenterX + freeRx * Math.cos(angle) - CARD_WIDTH / 2);
-      const targetY = Math.round(winCenterY + freeRy * Math.sin(angle) - CARD_HEIGHT / 2);
+      const orbitLayer = Math.floor(idx / 6);
+      const idxInLayer = idx % 6;
+      const rx = freeRx + orbitLayer * 380;
+      const ry = freeRy + orbitLayer * 340;
+      // 避开左右正中，向南北两极及四角分布：-0.5π, 0.5π, -0.7π, 0.7π, -0.3π, 0.3π
+      const sectorAngles = [-Math.PI * 0.5, Math.PI * 0.5, -Math.PI * 0.7, Math.PI * 0.7, -Math.PI * 0.3, Math.PI * 0.3];
+      const angle = sectorAngles[idxInLayer % sectorAngles.length];
+
+      const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
+      const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
       targetsMap.set(node.id, { x: targetX, y: targetY });
     });
   }
 
-  // 4. 构建全部节点的平滑移动任务列表
-  const moveList = [...winMoveList];
+  // 4. 弹性物理碰撞分离阶段 (Physics Relaxation Pass)
+  // 杜绝任何因为几何重合产生的重叠压盖：对所有节点进行迭代排斥，确保最小距离 dx >= 340, dy >= 380
+  const placedTargets = Array.from(targetsMap.entries()).map(([id, pos]) => ({
+    id,
+    x: pos.x,
+    y: pos.y,
+    w: CARD_WIDTH,
+    h: CARD_HEIGHT
+  }));
 
+  const MIN_DIST_X = 330;
+  const MIN_DIST_Y = 370;
+  for (let iter = 0; iter < 15; iter++) {
+    let changed = false;
+    for (let i = 0; i < placedTargets.length; i++) {
+      for (let j = i + 1; j < placedTargets.length; j++) {
+        const a = placedTargets[i];
+        const b = placedTargets[j];
+        const dx = (b.x + b.w / 2) - (a.x + a.w / 2);
+        const dy = (b.y + b.h / 2) - (a.y + a.h / 2);
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+
+        if (absX < MIN_DIST_X && absY < MIN_DIST_Y) {
+          const overlapX = MIN_DIST_X - absX;
+          const overlapY = MIN_DIST_Y - absY;
+          if (overlapX < overlapY) {
+            const shift = Math.ceil(overlapX / 2) + 6;
+            const sign = dx >= 0 ? 1 : -1;
+            b.x += shift * sign;
+            a.x -= shift * sign;
+          } else {
+            const shift = Math.ceil(overlapY / 2) + 6;
+            const sign = dy >= 0 ? 1 : -1;
+            b.y += shift * sign;
+            a.y -= shift * sign;
+          }
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+
+  placedTargets.forEach(t => {
+    targetsMap.set(t.id, { x: Math.round(t.x), y: Math.round(t.y) });
+  });
+
+  // 5. 构建全部节点的平滑移动任务列表
+  const moveList = [...winMoveList];
   allNodes.forEach(n => {
     const target = targetsMap.get(n.id);
     if (target) {
@@ -1903,7 +2064,7 @@ const autoOrganizeNodes = () => {
     }
   });
 
-  // 5. 启动平滑排版位移动画，完成后自动运镜聚焦包围盒
+  // 6. 启动平滑排版位移动画，完成后自动运镜聚焦包围盒
   animateNodesSmooth(moveList, 520, () => {
     fitNodesInView(moveList.map(m => {
       const isWin = creationWindows.value.includes(m.node);
@@ -1918,7 +2079,7 @@ const autoOrganizeNodes = () => {
   });
 
   emit('show-toast', { 
-    message: '已完成智能四周环绕排版！卡片自然散布于创作窗口四周，脉络连线清晰指示流向', 
+    message: '已完成智能四周环绕排版！连线拉长舒展，四周有机散布，杜绝卡片重叠', 
     type: 'success' 
   });
 };
@@ -1941,22 +2102,22 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
   const el = sourceWin ? winEls.get(sourceWin.id) : null;
   const winW = el?.offsetWidth || 440;
 
-  let targetX = (sourceWin ? sourceWin.x : 100) + winW + 70;
+  let targetX = (sourceWin ? sourceWin.x : 100) + winW + 120;
   let targetY = (sourceWin ? sourceWin.y : 120);
 
   if (parents.length > 0) {
     const parentNodes = imageNodes.value.filter(n => parents.includes(n.id));
     if (parentNodes.length > 0) {
       const maxX = Math.max(...parentNodes.map(p => p.x + (p.width || 280)));
-      targetX = maxX + 100;
+      targetX = maxX + 180;
       const avgY = Math.round(parentNodes.reduce((sum, p) => sum + p.y, 0) / parentNodes.length);
-      targetY = avgY;
+      targetY = avgY + (offsetIndex * 380);
     }
+  } else {
+    const slot = findSmartSurroundingSlot(sourceWin, false);
+    targetX = slot.x;
+    targetY = slot.y;
   }
-
-  const existingCount = imageNodes.value.filter(n => Math.abs(n.x - targetX) < 80 && Math.abs(n.y - targetY) < 80).length;
-  targetY += existingCount * 110 + (offsetIndex * 35);
-  targetX += (offsetIndex * 25);
 
   const newNode = {
     id: record.id,
@@ -1993,20 +2154,17 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
 const loadExternalImageToCanvas = (item) => {
   let existing = imageNodes.value.find(n => n.id === item.id);
   const win = activeConfigNode.value || creationWindows.value[0];
-  const winX = win ? win.x : 100;
-  const winY = win ? win.y : 120;
-  const el = win ? winEls.get(win.id) : null;
-  const winW = el?.offsetWidth || 440;
 
   if (!existing) {
+    const slot = findSmartSurroundingSlot(win, false);
     existing = {
       id: item.id,
       url: item.url,
       prompt: item.prompt,
       model: item.model,
       width: 280,
-      x: Math.round(winX + winW + 70),
-      y: Math.round(winY + 40),
+      x: slot.x,
+      y: slot.y,
       parentId: null
     };
     imageNodes.value.push(existing);
@@ -2014,7 +2172,7 @@ const loadExternalImageToCanvas = (item) => {
   selectedNodeId.value = item.id;
 };
 
-// 外部调用新功能：画廊点击“设为参考图”（加入画布 + 设为参考图，放置在创作中心左侧空闲位置，绝不悬浮重叠）
+// 外部调用新功能：画廊点击“设为参考图”（加入画布 + 设为参考图，四周智能空闲槽位，绝不悬浮重叠）
 const addGalleryItemAsReference = (item) => {
   const win = activeConfigNode.value || creationWindows.value[0];
   if (!win) return { added: false, message: '无可用创作窗口' };
@@ -2032,23 +2190,18 @@ const addGalleryItemAsReference = (item) => {
     return { added: false, message: '已达上限' };
   }
 
-  // 确保在画布上有合法坐标的节点卡片
+  // 确保在画布上有合法坐标的节点卡片 (四周智能空闲槽位)
   let node = imageNodes.value.find(n => n.id === item.id);
   if (!node) {
-    const refCount = win.refImages.length;
-    const col = Math.floor(refCount / 4);
-    const row = refCount % 4;
-    const posX = Math.round(win.x - 340 - col * 310);
-    const posY = Math.round(win.y + row * 180 - 40);
-
+    const slot = findSmartSurroundingSlot(win, true);
     node = {
       id: item.id,
       url: item.url,
       prompt: item.prompt,
       model: item.model,
       width: 280,
-      x: posX,
-      y: posY,
+      x: slot.x,
+      y: slot.y,
       parentId: null
     };
     imageNodes.value.push(node);
@@ -2070,7 +2223,7 @@ const addGalleryItemAsReference = (item) => {
   return { added: true, index: win.refImages.length };
 };
 
-// 外部调用新功能：画廊点击“加入到画布”（仅加入画布作为独立图片，不设为参考图，放置在创作中心右侧空闲位置）
+// 外部调用新功能：画廊点击“加入到画布”（仅加入画布作为独立图片，四周智能空闲分布，绝不单侧死板堆叠）
 const addGalleryItemToCanvas = (item) => {
   let node = imageNodes.value.find(n => n.id === item.id);
   if (node) {
@@ -2079,16 +2232,7 @@ const addGalleryItemToCanvas = (item) => {
   }
 
   const win = activeConfigNode.value || creationWindows.value[0];
-  const winX = win ? win.x : 100;
-  const winY = win ? win.y : 120;
-  const el = win ? winEls.get(win.id) : null;
-  const winW = el?.offsetWidth || 440;
-
-  const existingCount = imageNodes.value.length;
-  const col = Math.floor(existingCount / 3);
-  const row = existingCount % 3;
-  const posX = Math.round(winX + winW + 70 + col * 310);
-  const posY = Math.round(winY + row * 190);
+  const slot = findSmartSurroundingSlot(win, false);
 
   const newNode = {
     id: item.id,
@@ -2096,8 +2240,8 @@ const addGalleryItemToCanvas = (item) => {
     prompt: item.prompt,
     model: item.model,
     width: 280,
-    x: posX,
-    y: posY,
+    x: slot.x,
+    y: slot.y,
     parentId: null
   };
   imageNodes.value.push(newNode);
@@ -2163,17 +2307,16 @@ onMounted(() => {
   if (props.historyItems && props.historyItems.length > 0 && imageNodes.value.length === 0) {
     const initialItems = props.historyItems.slice(0, 4);
     const win = activeConfigNode.value || creationWindows.value[0];
-    const winX = win ? win.x : 100;
-    const winY = win ? win.y : 120;
-    initialItems.forEach((item, idx) => {
+    initialItems.forEach((item) => {
+      const slot = findSmartSurroundingSlot(win, false);
       imageNodes.value.push({
         id: item.id,
         url: item.url,
         prompt: item.prompt,
         model: item.model,
         width: 280,
-        x: Math.round(winX + 500 + Math.floor(idx / 2) * 320),
-        y: Math.round(winY + (idx % 2) * 360),
+        x: slot.x,
+        y: slot.y,
         parentId: null
       });
     });
@@ -2211,20 +2354,9 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* 性能极致优化：拖动画布漫游时，彻底消除重绘卡顿与掉帧 */
+/* 性能极致优化：拖动画布漫游时阻止指针穿透 */
 .canvas-viewport.panning .canvas-world {
   pointer-events: none !important;
-}
-
-.canvas-viewport.panning .canvas-node {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  transition: none !important;
-  will-change: transform;
-}
-
-.canvas-viewport.panning .connections-layer path {
-  animation: none !important;
 }
 
 .canvas-viewport.pointer-mode {
@@ -2238,30 +2370,34 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   transform-origin: 0 0;
+  will-change: transform;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 视口网格点阵背景 (优化：仅铺满 100% 视口，消除 20000x20000 巨幅重绘) */
+/* 视口网格点阵背景 (优化：仅铺满视口+微余量，固定 0 0 点阵，由 GPU translate3d 驱动，彻底消除每帧全屏 Repaint) */
 .canvas-grid-bg {
+  position: absolute;
+  top: -128px;
+  left: -128px;
+  width: calc(100% + 256px);
+  height: calc(100% + 256px);
+  pointer-events: none;
+  background-image: radial-gradient(var(--canvas-grid-dot) 1.2px, transparent 1.2px);
+  background-position: 0 0;
+  will-change: transform;
+}
+
+/* 贝塞尔连线层 (矢量自适应溢出容器，避免 1 亿像素巨型 raster 纹理，硬件层渲染极速流畅) */
+.connections-layer {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  background-image: radial-gradient(var(--canvas-grid-dot) 1.2px, transparent 1.2px);
-}
-
-/* 贝塞尔连线层 */
-.connections-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 10000px;
-  height: 10000px;
-  pointer-events: none;
   overflow: visible;
+  contain: layout style;
   z-index: 1;
 }
 
@@ -2347,7 +2483,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-lg);
   cursor: default;
-  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, transform 0.1s ease-out;
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;

@@ -7,52 +7,260 @@
     </button>
 
     <div class="sidebar-content glass-panel">
-      <!-- 顶部标题 (已去除 GPT-Image 2.5 标识) -->
+      <!-- 顶部标题 -->
       <div class="section-title">
         <span class="main-title">画布与生图配置</span>
       </div>
 
-      <!-- 1. 模型选择 -->
-      <div class="setting-group">
-        <label class="group-label">生图模型</label>
-        <div class="model-select-grid">
-          <button 
-            v-for="m in modelList" 
-            :key="m.id"
-            class="model-card"
-            :class="{ active: currentModel === m.id }"
-            @click="selectModel(m.id)"
-          >
-            <div class="model-card-top">
-              <span class="model-icon">{{ m.icon }}</span>
-              <span class="model-name">{{ m.name }}</span>
-              <span v-if="m.tag" class="model-tag" :class="m.tagType">{{ m.tag }}</span>
-            </div>
-          </button>
+      <!-- 模块一：核心生图配置 (模型 & 任务并发批次) -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-badge">01</span>
+          <span class="section-heading">生图模型与任务</span>
         </div>
-        <!-- 自定义模型 ID 输入框 -->
-        <div v-if="currentModel === 'custom'" class="custom-model-sidebar-box">
-          <input 
-            v-model="customModelId" 
-            @input="onCustomModelInput" 
-            placeholder="输入第三方支持的模型名称 (如: gpt-image-2)..." 
-            class="sidebar-custom-model-input"
-          />
-        </div>
-      </div>
 
-      <!-- 2. 个性指令集 (Prompt Skills) - 下拉菜单显示，支持多选开关与快捷编辑 -->
-      <div class="setting-group skills-group">
-        <div class="skills-header">
-          <div class="skills-header-left">
-            <label class="group-label">个性指令词库</label>
-            <span class="active-count-tag" v-if="activeSkillsCount > 0">{{ activeSkillsCount }} 项生效</span>
+        <!-- 1.1 模型选择 -->
+        <div class="setting-subgroup">
+          <div class="model-select-grid">
+            <button 
+              v-for="m in modelList" 
+              :key="m.id"
+              class="model-card"
+              :class="{ active: currentModel === m.id }"
+              @click="selectModel(m.id)"
+            >
+              <div class="model-card-top">
+                <span class="model-icon">{{ m.icon }}</span>
+                <span class="model-name">{{ m.name }}</span>
+                <span v-if="m.tag" class="model-tag" :class="m.tagType">{{ m.tag }}</span>
+              </div>
+            </button>
+          </div>
+          <!-- 自定义模型 ID 输入框 -->
+          <div v-if="currentModel === 'custom'" class="custom-model-sidebar-box">
+            <input 
+              v-model="customModelId" 
+              @input="onCustomModelInput" 
+              placeholder="输入第三方支持的模型名称 (如: gpt-image-2)..." 
+              class="sidebar-custom-model-input"
+            />
           </div>
         </div>
 
-        <!-- 下拉菜单容器 -->
+        <!-- 1.2 单次生成张数 (紧跟模型，合为生图执行统一单元) -->
+        <div class="setting-subgroup inline-subgroup">
+          <div class="subgroup-title-row">
+            <label class="group-label">单次生成数量</label>
+            <span class="subgroup-hint">{{ imageCount }} 张图片</span>
+          </div>
+          <div class="count-grid">
+            <button 
+              v-for="cnt in [1, 2, 3, 4]" 
+              :key="cnt"
+              class="count-btn" 
+              :class="{ active: imageCount === cnt }"
+              @click="updateImageCount(cnt)"
+            >
+              {{ cnt }} 张
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 模块二：画面与画质规格 (比例、分辨率、渲染质量、尺寸微调折叠) -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-badge">02</span>
+          <span class="section-heading">画幅与质量规格</span>
+        </div>
+
+        <!-- 2.1 预设宽高比 -->
+        <div class="setting-subgroup">
+          <div class="subgroup-title-row">
+            <label class="group-label">图片画幅比例</label>
+            <span class="subgroup-hint">{{ currentRatio }}</span>
+          </div>
+          <div class="ratio-grid">
+            <button 
+              v-for="item in ratioPresets" 
+              :key="item.name"
+              class="ratio-card" 
+              :class="{ active: currentRatio === item.value }"
+              @click="selectRatio(item.value)"
+            >
+              <div class="ratio-box" :style="getRatioStyle(item.value)"></div>
+              <span class="ratio-name">{{ item.name }}</span>
+              <span class="ratio-desc">{{ item.label }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2.2 分辨率等级 -->
+        <div class="setting-subgroup">
+          <div class="subgroup-title-row">
+            <label class="group-label">画质等级</label>
+            <span class="subgroup-hint">{{ currentLevel.toUpperCase() }}</span>
+          </div>
+          <div class="level-selector">
+            <button 
+              v-for="lvl in levels" 
+              :key="lvl.id"
+              class="level-btn"
+              :class="{ active: currentLevel === lvl.id }"
+              @click="selectLevel(lvl.id)"
+            >
+              {{ lvl.name }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 2.3 生成质量 (Quality) -->
+        <div class="setting-subgroup">
+          <div class="quality-header-row">
+            <label class="group-label">精细度质量</label>
+            <span v-if="currentModel === 'gpt-image-2'" class="quality-model-hint">Image 2 最高支持 HIGH</span>
+          </div>
+          <div class="quality-grid">
+            <button 
+              v-for="q in qualityList" 
+              :key="q.id"
+              class="quality-btn-new" 
+              :class="{ 
+                active: quality === q.id, 
+                'highlight-quality': q.isNew && !isQualityDisabled(q.id),
+                'disabled': isQualityDisabled(q.id)
+              }"
+              :disabled="isQualityDisabled(q.id)"
+              :title="isQualityDisabled(q.id) ? '当前模型不支持此画质（仅 GPT Image 2.5 系列可用）' : (q.badge ? `${q.name} (${q.badge})` : q.name)"
+              @click="updateQuality(q.id)"
+            >
+              <span class="quality-text">{{ q.name }}</span>
+              <span v-if="q.badge" class="quality-badge" :class="{ 'disabled-badge': isQualityDisabled(q.id) }">{{ q.badge }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2.4 尺寸微调手风琴折叠面板 (默认收起，展示当前尺寸，展开可滑动微调) -->
+        <div class="accordion-panel" :class="{ 'open': isSizeAccordionOpen }">
+          <div class="accordion-header" @click="isSizeAccordionOpen = !isSizeAccordionOpen">
+            <div class="accordion-title-left">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3H3v18h18V3z"></path><path d="M9 3v18"></path><path d="M15 3v18"></path><path d="M3 9h18"></path><path d="M3 15h18"></path></svg>
+              <span>精确尺寸控制</span>
+              <span class="accordion-meta-val">{{ width }} × {{ height }} px</span>
+            </div>
+            <div class="accordion-title-right">
+              <span class="pixel-pill" :class="{ 'warning': isPixelLimitExceeded }">{{ formattedPixels }}</span>
+              <svg class="accordion-chevron" :class="{ 'rotated': isSizeAccordionOpen }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </div>
+          <div v-show="isSizeAccordionOpen" class="accordion-body">
+            <div class="size-sliders">
+              <div class="slider-row">
+                <span class="slider-label">宽度: {{ width }}px</span>
+                <input 
+                  type="range" 
+                  :min="minSize" 
+                  :max="maxSize" 
+                  :step="16" 
+                  v-model.number="width"
+                  @input="onSizeInput('width')"
+                  class="custom-slider"
+                />
+              </div>
+              <div class="slider-row">
+                <span class="slider-label">高度: {{ height }}px</span>
+                <input 
+                  type="range" 
+                  :min="minSize" 
+                  :max="maxSize" 
+                  :step="16" 
+                  v-model.number="height"
+                  @input="onSizeInput('height')"
+                  class="custom-slider"
+                />
+              </div>
+            </div>
+            <div class="accordion-footer-actions">
+              <span v-if="isPixelLimitExceeded" class="limit-warning">(超出规范范围)</span>
+              <button class="link-btn" @click="resetToPreset">恢复推荐预设</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 模块三：输出格式与属性 (Format, Transparent Alpha, Compression) -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-badge">03</span>
+          <span class="section-heading">输出文件格式</span>
+        </div>
+
+        <div class="setting-subgroup">
+          <div class="format-grid">
+            <button 
+              v-for="f in ['png', 'jpeg', 'webp']" 
+              :key="f"
+              class="format-btn" 
+              :class="{ active: outputFormat === f }"
+              @click="updateOutputFormat(f)"
+            >
+              {{ f.toUpperCase() }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 透明背景 (PNG / WEBP 特权) -->
+        <div class="setting-subgroup" v-show="outputFormat === 'png' || outputFormat === 'webp'">
+          <div 
+            class="glass-feature-card" 
+            :class="{ 'active': transparentBackground }"
+            @click="toggleTransparentBackground"
+          >
+            <div class="feature-card-content">
+              <div class="feature-card-header">
+                <span class="feature-card-icon">✨</span>
+                <span class="feature-card-title">透明背景 (Alpha 免抠)</span>
+              </div>
+              <span class="feature-card-desc">自动免抠透明底，适合提取主体与 UI 图标</span>
+            </div>
+            <div class="glass-switch" :class="{ 'checked': transparentBackground }">
+              <div class="switch-handle"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 图像压缩率 (JPEG / WEBP 可用) -->
+        <div class="setting-subgroup" v-show="outputFormat === 'jpeg' || outputFormat === 'webp'">
+          <div class="subgroup-title-row">
+            <label class="group-label">压缩率 (Compression)</label>
+            <span class="subgroup-hint">{{ outputCompression }}%</span>
+          </div>
+          <div class="slider-container">
+            <input 
+              type="range" 
+              min="0" 
+              max="100" 
+              step="1" 
+              v-model.number="outputCompression"
+              @input="emitSettings"
+              class="custom-slider"
+            />
+          </div>
+          <span class="param-desc">数值越低体积越小，默认 80。</span>
+        </div>
+      </section>
+
+      <!-- 模块四：个性指令词库 (Prompt Skills) -->
+      <section class="sidebar-section">
+        <div class="section-header skills-header">
+          <div class="skills-header-left">
+            <span class="section-badge">04</span>
+            <span class="section-heading">个性指令词库</span>
+          </div>
+          <span class="active-count-tag" v-if="activeSkillsCount > 0">{{ activeSkillsCount }} 项生效</span>
+        </div>
+
         <div class="skills-dropdown-wrapper">
-          <!-- 下拉触发条 -->
           <div 
             class="skills-dropdown-trigger"
             :class="{ 'open': isSkillsDropdownOpen, 'active': activeSkillsCount > 0 }"
@@ -80,7 +288,6 @@
             </div>
           </div>
 
-          <!-- 下拉展开菜单 -->
           <Transition name="dropdown-slide">
             <div v-if="isSkillsDropdownOpen" class="skills-dropdown-menu glass-panel">
               <div class="dropdown-skills-list">
@@ -90,7 +297,6 @@
                   class="dropdown-skill-item"
                   :class="{ 'checked': skill.enabled, 'editing': editingSkillId === skill.id }"
                 >
-                  <!-- 顶行：复选开关、名称与操作按钮 -->
                   <div class="skill-row-main">
                     <label class="skill-check-area" @click.stop>
                       <input 
@@ -103,7 +309,6 @@
                     </label>
 
                     <div class="skill-item-btns">
-                      <!-- 展开编辑详情按钮 -->
                       <button 
                         class="skill-icon-btn" 
                         :class="{ 'active': editingSkillId === skill.id }"
@@ -113,7 +318,6 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                       </button>
 
-                      <!-- 删除按钮 -->
                       <button 
                         class="skill-icon-btn del-btn" 
                         @click.stop="deleteSkill(index)" 
@@ -124,7 +328,6 @@
                     </div>
                   </div>
 
-                  <!-- 展开项：编辑指令名称与内容文本框 -->
                   <div v-if="editingSkillId === skill.id" class="skill-edit-box" @click.stop>
                     <div class="edit-input-group">
                       <span class="edit-input-label">指令名称:</span>
@@ -149,7 +352,6 @@
                 </div>
               </div>
 
-              <!-- 下拉底部：添加新指令按钮 -->
               <div class="dropdown-footer-row">
                 <button class="add-skill-button" @click.stop="addNewSkill">
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -159,183 +361,15 @@
             </div>
           </Transition>
         </div>
-      </div>
-
-      <!-- 3. 预设宽高比 -->
-      <div class="setting-group">
-        <label class="group-label">图片比例</label>
-        <div class="ratio-grid">
-          <button 
-            v-for="item in ratioPresets" 
-            :key="item.name"
-            class="ratio-card" 
-            :class="{ active: currentRatio === item.value }"
-            @click="selectRatio(item.value)"
-          >
-            <div class="ratio-box" :style="getRatioStyle(item.value)"></div>
-            <span class="ratio-name">{{ item.name }}</span>
-            <span class="ratio-desc">{{ item.label }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 4. 分辨率等级 -->
-      <div class="setting-group">
-        <label class="group-label">画质规格</label>
-        <div class="level-selector">
-          <button 
-            v-for="lvl in levels" 
-            :key="lvl.id"
-            class="level-btn"
-            :class="{ active: currentLevel === lvl.id }"
-            @click="selectLevel(lvl.id)"
-          >
-            {{ lvl.name }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 5. 尺寸微调 -->
-      <div class="setting-group">
-        <div class="size-header">
-          <label class="group-label">尺寸微调</label>
-          <button class="link-btn" @click="resetToPreset">重置预设</button>
-        </div>
-        <div class="size-sliders">
-          <div class="slider-row">
-            <span class="slider-label">宽度: {{ width }}px</span>
-            <input 
-              type="range" 
-              :min="minSize" 
-              :max="maxSize" 
-              :step="16" 
-              v-model.number="width"
-              @input="onSizeInput('width')"
-              class="custom-slider"
-            />
-          </div>
-          <div class="slider-row">
-            <span class="slider-label">高度: {{ height }}px</span>
-            <input 
-              type="range" 
-              :min="minSize" 
-              :max="maxSize" 
-              :step="16" 
-              v-model.number="height"
-              @input="onSizeInput('height')"
-              class="custom-slider"
-            />
-          </div>
-        </div>
-        <div class="pixel-info" :class="{ 'warning': isPixelLimitExceeded }">
-          像素总数: {{ formattedPixels }}
-          <span v-if="isPixelLimitExceeded" class="limit-warning">(超出规范范围)</span>
-        </div>
-      </div>
-
-      <!-- 6. 生成质量 (Quality) -->
-      <div class="setting-group">
-        <div class="quality-header-row">
-          <label class="group-label">生成质量</label>
-          <span v-if="currentModel === 'gpt-image-2'" class="quality-model-hint">Image 2 最高支持 HIGH</span>
-        </div>
-        <div class="quality-grid">
-          <button 
-            v-for="q in qualityList"
-            :key="q.id"
-            class="quality-btn-new" 
-            :class="{ 
-              active: quality === q.id, 
-              'highlight-quality': q.isNew && !isQualityDisabled(q.id),
-              'disabled': isQualityDisabled(q.id)
-            }"
-            :disabled="isQualityDisabled(q.id)"
-            :title="isQualityDisabled(q.id) ? '当前模型不支持此画质（仅 GPT Image 2.5 系列可用）' : (q.badge ? `${q.name} (${q.badge})` : q.name)"
-            @click="updateQuality(q.id)"
-          >
-            <span class="quality-text">{{ q.name }}</span>
-            <span v-if="q.badge" class="quality-badge" :class="{ 'disabled-badge': isQualityDisabled(q.id) }">{{ q.badge }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 7. 输出格式与特性 -->
-      <div class="setting-group">
-        <label class="group-label">输出格式</label>
-        <div class="format-grid">
-          <button 
-            v-for="f in ['png', 'jpeg', 'webp']"
-            :key="f"
-            class="format-btn" 
-            :class="{ active: outputFormat === f }"
-            @click="updateOutputFormat(f)"
-          >
-            {{ f.toUpperCase() }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 透明背景 (PNG / WEBP 特权) -->
-      <div class="setting-group" v-show="outputFormat === 'png' || outputFormat === 'webp'">
-        <div 
-          class="glass-feature-card" 
-          :class="{ 'active': transparentBackground }"
-          @click="toggleTransparentBackground"
-        >
-          <div class="feature-card-content">
-            <div class="feature-card-header">
-              <span class="feature-card-icon">✨</span>
-              <span class="feature-card-title">透明背景 (Alpha)</span>
-            </div>
-            <span class="feature-card-desc">自动免抠透明底，提取图标与 UI 设计素材</span>
-          </div>
-          <!-- 极简毛玻璃滑动开关 -->
-          <div class="glass-switch" :class="{ 'checked': transparentBackground }">
-            <div class="switch-handle"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 8. 图像压缩率 -->
-      <div class="setting-group" v-show="outputFormat === 'jpeg' || outputFormat === 'webp'">
-        <div class="size-header">
-          <label class="group-label">图像压缩率 (Compression: {{ outputCompression }}%)</label>
-        </div>
-        <div class="slider-container">
-          <input 
-            type="range" 
-            min="0" 
-            max="100" 
-            step="1" 
-            v-model.number="outputCompression"
-            @input="emitSettings"
-            class="custom-slider"
-          />
-        </div>
-        <span class="param-desc">数值越低体积越小，默认 80。</span>
-      </div>
-
-      <!-- 9. 单次生成张数 (Batch Count) -->
-      <div class="setting-group">
-        <label class="group-label">生成图片张数</label>
-        <div class="count-grid">
-          <button 
-            v-for="cnt in [1, 2, 3, 4]" 
-            :key="cnt"
-            class="count-btn" 
-            :class="{ active: imageCount === cnt }"
-            @click="updateImageCount(cnt)"
-          >
-            {{ cnt }} 张
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+
+const isSizeAccordionOpen = ref(false);
 
 const props = defineProps({
   isVisible: Boolean
@@ -796,6 +830,154 @@ onMounted(() => {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+}
+
+/* 4 大清晰模块分区设计 */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--primary-color);
+  background: var(--accent-indigo-bg, rgba(99, 102, 241, 0.15));
+  padding: 2px 6px;
+  border-radius: var(--radius-micro, 4px);
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+.section-heading {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.setting-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.subgroup-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.subgroup-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+/* 尺寸微调手风琴 */
+.accordion-panel {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  transition: var(--transition-smooth);
+  overflow: hidden;
+}
+
+:root[data-theme="light"] .accordion-panel {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.accordion-panel.open {
+  border-color: var(--border-focus);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.accordion-header {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.accordion-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.accordion-title-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.accordion-meta-val {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.accordion-title-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pixel-pill {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-micro);
+}
+
+.pixel-pill.warning {
+  color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.accordion-chevron {
+  color: var(--text-muted);
+  transition: transform 0.25s ease;
+}
+
+.accordion-chevron.rotated {
+  transform: rotate(180deg);
+  color: var(--primary-color);
+}
+
+.accordion-body {
+  padding: 10px 10px 12px 10px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.accordion-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
 }
 
 .setting-group {
