@@ -223,7 +223,7 @@ import {
   cacheImage, 
   getCachedImageUrl 
 } from './utils/db';
-import { createThumbnail } from './utils/thumbnail';
+import { createThumbnail, revokeThumbnail, clearThumbnailCache } from './utils/thumbnail';
 
 // 当前页面标签：'canvas' (灵感画布) | 'gallery' (成果画廊)
 const currentTab = ref('canvas');
@@ -798,6 +798,10 @@ const handleGalleryBatchAddToCanvas = (items) => {
 
 // 删除单张历史图片
 const handleDeleteImage = async (id) => {
+  const targetItem = historyList.value.find(item => item.id === id);
+  if (targetItem?.url) {
+    revokeThumbnail(targetItem.url);
+  }
   const success = await deleteHistoryRecord(id);
   if (success) {
     historyList.value = historyList.value.filter(item => item.id !== id);
@@ -807,6 +811,7 @@ const handleDeleteImage = async (id) => {
 
 // 清空所有历史画作
 const handleClearAllGallery = async () => {
+  clearThumbnailCache();
   await clearAllRecords();
   historyList.value = [];
   showToastMsg({ message: '历史画作档案已全部清空', type: 'info' });

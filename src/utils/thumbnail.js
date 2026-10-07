@@ -2,8 +2,27 @@
 // 专为 1K~4K 高清图与多卡片画布打造：离屏等比缩放至 ~360px 轻量 WebP/JPEG 缩略图
 // 显存开销从 ~33MB/张 暴降至 ~300KB/张，释放 95%+ GPU 纹理显存，消除缩放与平移重采样开销
 
-// 内存单例缓存表 (URL -> Thumbnail Object URL / Data URL)
+// 内存单例缓存表 (URL -> Thumbnail Object URL / Data URL / Promise)
 const thumbnailCache = new Map();
+
+// 活跃 Blob Object URL 追踪集合，彻底杜绝内存泄漏
+const activeBlobUrls = new Set();
+
+const registerBlobUrl = (url) => {
+  if (url && typeof url === 'string' && url.startsWith('blob:')) {
+    activeBlobUrls.add(url);
+  }
+  return url;
+};
+
+/**
+ * 判断指定 Blob URL 是否为当前页面会话生成的有效活跃对象
+ */
+export function isBlobUrlActive(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.startsWith('blob:')) return true;
+  return activeBlobUrls.has(url);
+}
 
 /**
  * 离屏等比生成轻量缩略图
@@ -15,9 +34,10 @@ const thumbnailCache = new Map();
 export async function createThumbnail(source, maxDimension = 360, quality = 0.82) {
   if (!source || typeof source !== 'string') return source;
 
-  // 1. 如果已经缓存，直接返回已创建的缩略图地址
+  // 1. 如果已经缓存，直接返回已创建的缩略图地址 (或等待正在进行的 Promise)
   if (thumbnailCache.has(source)) {
-    return thumbnailCache.get(source);
+    const cached = thumbnailCache.get(source);
+    return cached;
   }
 
   // 2. 如果本身是极小的矢量 SVG，无需降采样
@@ -69,7 +89,7 @@ export async function createThumbnail(source, maxDimension = 360, quality = 0.82
         targetW = Math.max(1, targetW);
         targetH = Math.max(1, targetH);
 
-        // 优先使用 OffscreenCanvas (若环境支持且在非 DOM 环境)，否则使用轻量离屏 Canvas
+        // 优先使用 OffscreenCanvas，否则回退离屏 DOM Canvas
         let canvas = null;
         if (typeof OffscreenCanvas !== 'undefined') {
           try {
@@ -100,14 +120,14 @@ export async function createThumbnail(source, maxDimension = 360, quality = 0.82
         if (canvas.convertToBlob) {
           try {
             const blob = await canvas.convertToBlob({ type: 'image/webp', quality });
-            const thumbUrl = URL.createObjectURL(blob);
+            const thumbUrl = registerBlobUrl(URL.createObjectURL(blob));
             resolve(thumbUrl);
             return;
           } catch (err) {
             // WebP 不支持时降级 JPEG
             try {
               const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
-              const thumbUrl = URL.createObjectURL(blob);
+              const thumbUrl = registerBlobUrl(URL.createObjectURL(blob));
               resolve(thumbUrl);
               return;
             } catch (err2) {
@@ -119,14 +139,15 @@ export async function createThumbnail(source, maxDimension = 360, quality = 0.82
           canvas.toBlob(
             (blob) => {
               if (blob) {
-                const thumbUrl = URL.createObjectURL(blob);
+                const thumbUrl = registerBlobUrl(URL.createObjectURL(blob));
                 resolve(thumbUrl);
               } else {
                 // 降级为 JPEG
                 canvas.toBlob(
                   (jpegBlob) => {
                     if (jpegBlob) {
-                      resolve(URL.createObjectURL(jpegBlob));
+                      const thumbUrl = registerBlobUrl(URL.createObjectURL(jpegBlob));
+                      resolve(thumbUrl);
                     } else {
                       resolve(source);
                     }
@@ -157,20 +178,41 @@ export async function createThumbnail(source, maxDimension = 360, quality = 0.82
     img.src = source;
   });
 
+  // 挂载 Promise，待完成后替换为具体结果字符串
   thumbnailCache.set(source, promise);
+  promise.then((resolvedUrl) => {
+    thumbnailCache.set(source, resolvedUrl);
+  }).catch(() => {
+    thumbnailCache.set(source, source);
+  });
+
   return promise;
 }
 
 /**
- * 清空内存缩略图缓存并释放 Object URL 内存
+ * 撤销单张图片的缩略图缓存并释放内存
+ */
+export function revokeThumbnail(source) {
+  if (!source) return;
+  const cached = thumbnailCache.get(source);
+  if (typeof cached === 'string' && cached.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(cached);
+    } catch (e) {}
+    activeBlobUrls.delete(cached);
+  }
+  thumbnailCache.delete(source);
+}
+
+/**
+ * 清空内存缩略图缓存并彻底释放所有 Object URL 内存
  */
 export function clearThumbnailCache() {
-  thumbnailCache.forEach((value) => {
-    if (typeof value === 'string' && value.startsWith('blob:')) {
-      try {
-        URL.revokeObjectURL(value);
-      } catch (e) {}
-    }
+  activeBlobUrls.forEach((url) => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch (e) {}
   });
+  activeBlobUrls.clear();
   thumbnailCache.clear();
 }

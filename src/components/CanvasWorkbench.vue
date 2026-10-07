@@ -60,7 +60,7 @@
           <!-- 1. 底层暗色衬托描边：用于线条立体分层与交叉时清晰辨识，区分归属 -->
           <path 
             :d="link.path" 
-            class="connection-curve-underlay" 
+            :class="['connection-curve-underlay', { 'faded-heritage': link.type === 'heritage' && isAnyRefActive && hoveredPipelineId !== link.pipelineId }]" 
             fill="none" 
             :stroke-width="(link.strokeWidth || 2.4) + 5"
           />
@@ -110,6 +110,8 @@
           }"
           :style="{ transform: `translate(${Math.round(win.x)}px, ${Math.round(win.y)}px)` }"
           @mousedown.stop="startNodeDrag($event, win)"
+          @mouseenter="hoveredNodeId = win.id"
+          @mouseleave="hoveredNodeId = null"
           @click="activeConfigId = win.id"
         >
           <!-- 节点顶部拖拽柄 (无胶囊边框，极简状态指示) -->
@@ -157,7 +159,7 @@
                   class="ref-thumbnail-card"
                   :title="`参考图 [Image ${idx + 1}]`"
                 >
-                  <img :src="img.thumbnailUrl || img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" decoding="async" loading="lazy" />
+                  <img :src="img.thumbnailUrl || img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" decoding="async" loading="lazy" @error="img.thumbnailUrl = null" />
                   <span class="ref-order-tag">Image {{ idx + 1 }}</span>
                   <button class="remove-ref-btn" @click.stop="removeWindowRefImage(win, idx)" title="移除此参考图">
                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -291,7 +293,7 @@
             @dblclick.stop="$emit('preview', node)"
             title="双击图片放大预览"
           >
-            <img :src="node.thumbnailUrl || node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" />
+            <img :src="node.thumbnailUrl || node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" @error="node.thumbnailUrl = null" />
             
             <!-- 悬浮操作面板 -->
             <div class="img-hover-overlay" @mousedown.stop>
@@ -544,7 +546,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { createThumbnail } from '../utils/thumbnail';
+import { createThumbnail, isBlobUrlActive } from '../utils/thumbnail';
 
 const props = defineProps({
   isGenerating: Boolean,
@@ -569,6 +571,7 @@ let animFrameId = null;
 let globalDashOffset = 0;
 let lastFrameTime = performance.now();
 let viewportResizeObserver = null;
+let themeObserver = null;
 
 // 切换连线渲染双模引擎
 const toggleRenderEngine = () => {
@@ -584,6 +587,7 @@ const toggleRenderEngine = () => {
     nextTick(() => {
       updateCanvasSize();
       drawConnections(panX.value, panY.value, scale.value);
+      startCanvasAnimLoop();
     });
   }
 };
@@ -591,7 +595,8 @@ const toggleRenderEngine = () => {
 // 自动为节点生成并绑定轻量缩略图 (释放 95%+ GPU 纹理显存)
 const ensureNodeThumbnail = (node) => {
   if (!node || !node.url) return;
-  if (!node.thumbnailUrl) {
+  // 如果无缩略图或缩略图为失效的旧会话 blob，异步生成有效缩略图
+  if (!node.thumbnailUrl || (typeof node.thumbnailUrl === 'string' && node.thumbnailUrl.startsWith('blob:') && !isBlobUrlActive(node.thumbnailUrl))) {
     createThumbnail(node.url).then(tUrl => {
       if (tUrl && tUrl !== node.url) {
         node.thumbnailUrl = tUrl;
@@ -1394,7 +1399,7 @@ const updateCanvasSize = () => {
 };
 
 // 核心：Canvas 2D 批量绘制所有贝塞尔连线与物理端点
-const drawConnections = (curPanX, curPanY, curScale) => {
+const drawConnections = (curPanX = panX.value, curPanY = panY.value, curScale = scale.value) => {
   const canvas = connectionsCanvasRef.value;
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -1406,12 +1411,19 @@ const drawConnections = (curPanX, curPanY, curScale) => {
   const links = activeLinks.value;
   if (!links || links.length === 0) return;
 
+  // 保证视口尺寸已就绪，避免初始未测量导致误剔除
+  if (canvasWidth === 0 || canvasHeight === 0) {
+    updateCanvasSize();
+  }
+  const vpW = canvasWidth || viewportRef.value?.clientWidth || window.innerWidth;
+  const vpH = canvasHeight || viewportRef.value?.clientHeight || window.innerHeight;
+
   // 视口视锥剔除 (Viewport AABB Culling，跳过视口外无意义计算与绘制)
   const margin = 160;
   const visMinX = (-curPanX) / curScale - margin;
-  const visMaxX = (canvasWidth - curPanX) / curScale + margin;
+  const visMaxX = (vpW - curPanX) / curScale + margin;
   const visMinY = (-curPanY) / curScale - margin;
-  const visMaxY = (canvasHeight - curPanY) / curScale + margin;
+  const visMaxY = (vpH - curPanY) / curScale + margin;
 
   const visibleLinks = links.filter(l => {
     const minX = Math.min(l.fromX, l.toX, l.c1x, l.c2x);
@@ -1429,7 +1441,7 @@ const drawConnections = (curPanX, curPanY, curScale) => {
 
   const isLight = document.documentElement.getAttribute('data-theme') === 'light' || document.body.classList.contains('light-theme');
 
-  // ===== 第一阶段 (Pass 1)：底层暗色/亮色立体衬托描边 (一次性批量 BeginPath & Stroke) =====
+  // ===== 第一阶段 (Pass 1)：底层暗色/亮色立体衬托描边 (分批一次性批量 BeginPath & Stroke) =====
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -1437,13 +1449,41 @@ const drawConnections = (curPanX, curPanY, curScale) => {
   ctx.lineWidth = 7.4;
   ctx.setLineDash([]);
 
-  ctx.beginPath();
+  // 分离常规衬托与半透明淡化衬托，避免淡化血脉线后方呈现显眼的死黑粗线
+  const normalUnderlays = [];
+  const fadedUnderlays = [];
   for (let i = 0; i < visibleLinks.length; i++) {
     const l = visibleLinks[i];
-    ctx.moveTo(l.fromX, l.fromY);
-    ctx.bezierCurveTo(l.c1x, l.c1y, l.c2x, l.c2y, l.toX, l.toY);
+    const isFaded = l.type === 'heritage' && isAnyRefActive.value && hoveredPipelineId.value !== l.pipelineId;
+    if (isFaded) {
+      fadedUnderlays.push(l);
+    } else {
+      normalUnderlays.push(l);
+    }
   }
-  ctx.stroke(); // 整个画布仅 1 次 Draw Call 完成所有连线底层立体阴影与交叉分层！
+
+  if (normalUnderlays.length > 0) {
+    ctx.beginPath();
+    for (let i = 0; i < normalUnderlays.length; i++) {
+      const l = normalUnderlays[i];
+      ctx.moveTo(l.fromX, l.fromY);
+      ctx.bezierCurveTo(l.c1x, l.c1y, l.c2x, l.c2y, l.toX, l.toY);
+    }
+    ctx.stroke();
+  }
+
+  if (fadedUnderlays.length > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.beginPath();
+    for (let i = 0; i < fadedUnderlays.length; i++) {
+      const l = fadedUnderlays[i];
+      ctx.moveTo(l.fromX, l.fromY);
+      ctx.bezierCurveTo(l.c1x, l.c1y, l.c2x, l.c2y, l.toX, l.toY);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.restore();
 
   // ===== 第二阶段 (Pass 2)：高精度流光渐变曲线绘制 =====
@@ -1453,7 +1493,7 @@ const drawConnections = (curPanX, curPanY, curScale) => {
 
   for (let i = 0; i < visibleLinks.length; i++) {
     const l = visibleLinks[i];
-    const isHighlighted = hoveredNodeId.value && l.id.includes(hoveredNodeId.value);
+    const isHighlighted = hoveredNodeId.value && l.id.includes(String(hoveredNodeId.value));
     const isFaded = l.type === 'heritage' && isAnyRefActive.value && hoveredPipelineId.value !== l.pipelineId;
 
     ctx.save();
@@ -1493,18 +1533,24 @@ const drawConnections = (curPanX, curPanY, curScale) => {
     }
 
     // 动态线性渐变 (沿曲线从起点指向终点)
-    const grad = ctx.createLinearGradient(l.fromX, l.fromY, l.toX, l.toY);
-    if (l.type === 'recent-output') {
-      grad.addColorStop(0, '#06b6d4');
-      grad.addColorStop(1, '#10b981');
-    } else if (l.type === 'heritage') {
-      grad.addColorStop(0, '#f59e0b');
-      grad.addColorStop(1, '#fbbf24');
+    const dist = Math.hypot(l.toX - l.fromX, l.toY - l.fromY);
+    if (dist < 1) {
+      // 距离极近时纯色兜底，避免 createLinearGradient 产生空色块
+      ctx.strokeStyle = l.type === 'recent-output' ? '#10b981' : l.type === 'heritage' ? '#f59e0b' : '#6366f1';
     } else {
-      grad.addColorStop(0, '#6366f1');
-      grad.addColorStop(1, '#a855f7');
+      const grad = ctx.createLinearGradient(l.fromX, l.fromY, l.toX, l.toY);
+      if (l.type === 'recent-output') {
+        grad.addColorStop(0, '#06b6d4');
+        grad.addColorStop(1, '#10b981');
+      } else if (l.type === 'heritage') {
+        grad.addColorStop(0, '#f59e0b');
+        grad.addColorStop(1, '#fbbf24');
+      } else {
+        grad.addColorStop(0, '#6366f1');
+        grad.addColorStop(1, '#a855f7');
+      }
+      ctx.strokeStyle = grad;
     }
-    ctx.strokeStyle = grad;
 
     ctx.beginPath();
     ctx.moveTo(l.fromX, l.fromY);
@@ -1549,11 +1595,24 @@ const drawConnections = (curPanX, curPanY, curScale) => {
   ctx.restore();
 };
 
+// 启动 Canvas 2D 流水动画循环
+const startCanvasAnimLoop = () => {
+  if (!animFrameId && renderEngine.value === 'canvas') {
+    lastFrameTime = performance.now();
+    animFrameId = requestAnimationFrame(canvasAnimLoop);
+  }
+};
+
 // Canvas 2D 流光流动动画循环 (满帧且智能防卡顿)
 const canvasAnimLoop = (now) => {
-  animFrameId = requestAnimationFrame(canvasAnimLoop);
-  if (renderEngine.value !== 'canvas') return;
-  if (document.hidden) return; // 切换后台标签页时彻底休眠节省功耗
+  if (renderEngine.value !== 'canvas') {
+    animFrameId = null;
+    return;
+  }
+  if (document.hidden) {
+    animFrameId = requestAnimationFrame(canvasAnimLoop);
+    return; // 切换后台标签页时休眠节省功耗
+  }
 
   const dt = Math.min(100, now - lastFrameTime);
   lastFrameTime = now;
@@ -1563,6 +1622,8 @@ const canvasAnimLoop = (now) => {
     globalDashOffset = (globalDashOffset - dt * 0.032) % 1000;
     drawConnections(panX.value, panY.value, scale.value);
   }
+
+  animFrameId = requestAnimationFrame(canvasAnimLoop);
 };
 
 // 开始平移漫游
@@ -2833,8 +2894,27 @@ onMounted(() => {
     viewportResizeObserver.observe(viewportRef.value);
   }
 
-  animFrameId = requestAnimationFrame(canvasAnimLoop);
+  // 监听主题切换，即时刷新 Canvas 2D 衬托连线暗色/亮色
+  themeObserver = new MutationObserver(() => {
+    if (renderEngine.value === 'canvas') {
+      drawConnections(panX.value, panY.value, scale.value);
+    }
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  startCanvasAnimLoop();
 });
+
+// 浏览器标签页切回前台时唤醒动画
+const handleVisibilityChange = () => {
+  if (!document.hidden && renderEngine.value === 'canvas') {
+    lastFrameTime = performance.now();
+    startCanvasAnimLoop();
+    drawConnections(panX.value, panY.value, scale.value);
+  }
+};
 
 // 监听响应式数据变动即刻重绘 Canvas 连线 (零滞后)
 watch([panX, panY, scale, activeLinks, hoveredNodeId, hoveredPipelineId], () => {
@@ -2851,7 +2931,12 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', onMouseUp);
   window.removeEventListener('mousemove', onPipeMouseMove);
   window.removeEventListener('mouseup', onPipeMouseUp);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 
+  if (themeObserver) {
+    themeObserver.disconnect();
+    themeObserver = null;
+  }
   if (animFrameId) {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
@@ -2968,6 +3053,7 @@ onUnmounted(() => {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  z-index: 2;
 }
 
 /* 视口网格点阵背景 (优化：仅铺满视口+微余量，固定 0 0 点阵，由 GPU translate3d 驱动，彻底消除每帧全屏 Repaint) */
@@ -3070,7 +3156,8 @@ onUnmounted(() => {
   animation: flowLine 35s linear infinite;
 }
 
-.connection-curve.faded-heritage {
+.connection-curve.faded-heritage,
+.connection-curve-underlay.faded-heritage {
   opacity: 0.18 !important;
   filter: grayscale(0.6);
 }
@@ -4313,5 +4400,20 @@ onUnmounted(() => {
 .dock-btn-label {
   font-size: 0.74rem;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .floating-dock-wrapper {
+    bottom: 12px;
+    max-width: 96vw;
+  }
+  .dock-panel {
+    gap: 4px;
+    padding: 3px 6px;
+    overflow-x: auto;
+  }
+  .render-engine-dock-btn {
+    padding: 0 4px !important;
+  }
 }
 </style>

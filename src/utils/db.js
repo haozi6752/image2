@@ -148,7 +148,14 @@ export const saveHistoryRecord = async (record) => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([STORE_RECORDS], 'readwrite');
       const store = tx.objectStore(STORE_RECORDS);
-      const req = store.put(record);
+
+      // 关键保护：临时 blob: Object URL 仅在当前会话有效，绝对不持久化至数据库，避免刷新后变死链
+      const recordToSave = { ...record };
+      if (recordToSave.thumbnailUrl && typeof recordToSave.thumbnailUrl === 'string' && recordToSave.thumbnailUrl.startsWith('blob:')) {
+        recordToSave.thumbnailUrl = null;
+      }
+
+      const req = store.put(recordToSave);
 
       req.onsuccess = () => resolve(true);
       req.onerror = (e) => {
@@ -179,6 +186,12 @@ export const getAllHistoryRecords = async () => {
 
       req.onsuccess = (e) => {
         const records = e.target.result || [];
+        // 净化旧版本可能残留写入的死 blob: 链接
+        records.forEach(r => {
+          if (r.thumbnailUrl && typeof r.thumbnailUrl === 'string' && r.thumbnailUrl.startsWith('blob:')) {
+            r.thumbnailUrl = null;
+          }
+        });
         // 按时间倒序排序
         records.sort((a, b) => (b.timestamp || b.id) - (a.timestamp || a.id));
         resolve(records);
