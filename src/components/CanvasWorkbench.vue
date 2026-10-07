@@ -95,7 +95,7 @@
             'is-dragging': draggingNode === win,
             'is-active-window': activeConfigId === win.id
           }"
-          :style="{ transform: `translate3d(${win.x}px, ${win.y}px, 0)` }"
+          :style="{ transform: `translate(${Math.round(win.x)}px, ${Math.round(win.y)}px)` }"
           @mousedown.stop="startNodeDrag($event, win)"
           @click="activeConfigId = win.id"
         >
@@ -117,7 +117,7 @@
                 v-if="creationWindows.length > 1"
                 class="win-close-btn"
                 @click.stop="closeCreationWindow(win.id)"
-                title="关闭此创作窗口"
+                title="关闭并移除此创作窗口"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
@@ -246,7 +246,7 @@
             'is-dragging': draggingNode === node,
             'is-referenced': isNodeInRefImages(node.id)
           }"
-          :style="{ transform: `translate3d(${node.x}px, ${node.y}px, 0)`, width: `${node.width || 280}px` }"
+          :style="{ transform: `translate(${Math.round(node.x)}px, ${Math.round(node.y)}px)`, width: `${node.width || 280}px` }"
           @mousedown.stop="startNodeDrag($event, node)"
           @mouseenter="hoveredNodeId = node.id"
           @mouseleave="hoveredNodeId = null"
@@ -297,10 +297,10 @@
                   v-else
                   class="action-pill-btn add-ref-btn" 
                   @click.stop="toggleNodeInRefImages(node)"
-                  :title="configNode.refImages.length === 0 ? '设为参考图 (将清空输入框文本以输入新构思)' : '追加到参考组合中进行多图融合'"
+                  :title="(activeConfigNode?.refImages?.length || 0) === 0 ? '设为参考图 (将清空输入框文本以输入新构思)' : '追加到参考组合中进行多图融合'"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                  <span>{{ configNode.refImages.length === 0 ? '设为参考' : '+ 追加参考' }}</span>
+                  <span>{{ (activeConfigNode?.refImages?.length || 0) === 0 ? '设为参考' : '+ 追加参考' }}</span>
                 </button>
 
                 <!-- 如果当前为最新衍生图，浮层也提供一键独立按钮 -->
@@ -396,7 +396,7 @@
             'faded-hub': isAnyRefActive && activePipelineId !== pipe.id && hoveredPipelineId !== pipe.id,
             'active-hub': activePipelineId === pipe.id 
           }"
-          :style="{ transform: `translate3d(${pipe.x}px, ${pipe.y}px, 0)` }"
+          :style="{ transform: `translate(${Math.round(pipe.x)}px, ${Math.round(pipe.y)}px)` }"
           @click.stop="togglePipelineDetail(pipe.id)"
           @mousedown.stop="startPipeDrag($event, pipe)"
           @mouseenter="hoveredPipelineId = pipe.id"
@@ -460,8 +460,8 @@
 
         <div class="dock-divider"></div>
 
-        <!-- 创作窗口添加控制 (无上限并行生图) -->
-        <div class="dock-group">
+        <!-- 创作窗口添加与关闭控制 (多窗口并行生图与管理) -->
+        <div class="dock-group window-control-group">
           <button 
             class="dock-btn add-win-dock-btn" 
             @click="addCreationWindow" 
@@ -469,6 +469,15 @@
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
             <span class="dock-btn-label">＋ 创作窗口</span>
+          </button>
+          <button 
+            v-if="creationWindows.length > 1"
+            class="dock-btn remove-win-dock-btn" 
+            @click="closeCreationWindow(activeConfigId)" 
+            title="关闭当前获得焦点的创作窗口"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            <span class="dock-btn-label">－ 关闭窗口</span>
           </button>
         </div>
 
@@ -553,7 +562,8 @@ const creationWindows = ref([
     prompt: '',
     refImages: [], // 数组：[{ id, url, name, parentId }]
     parentImageId: null,
-    isGenerating: false
+    isGenerating: false,
+    recentGeneratedIds: [] // 本次任务生成的图片ID列表，支持一次生成多张各连一根发光线
   }
 ]);
 
@@ -572,8 +582,8 @@ const addCreationWindow = () => {
   const newIndex = creationWindows.value.length + 1;
   const newId = `config-center-${Date.now()}`;
   const lastWin = creationWindows.value[creationWindows.value.length - 1];
-  const newX = lastWin ? lastWin.x + 480 : 100;
-  const newY = lastWin ? lastWin.y : 120;
+  const newX = lastWin ? Math.round(lastWin.x + 480) : 100;
+  const newY = lastWin ? Math.round(lastWin.y) : 120;
 
   const newWindow = {
     id: newId,
@@ -583,7 +593,8 @@ const addCreationWindow = () => {
     prompt: '',
     refImages: [],
     parentImageId: null,
-    isGenerating: false
+    isGenerating: false,
+    recentGeneratedIds: []
   };
 
   creationWindows.value.push(newWindow);
@@ -594,14 +605,17 @@ const addCreationWindow = () => {
 // 关闭创作窗口
 const closeCreationWindow = (winId) => {
   if (creationWindows.value.length <= 1) {
-    emit('show-toast', { message: '至少保留一个创作窗口', type: 'info' });
+    emit('show-toast', { message: '至少保留一个创作窗口，不可关闭', type: 'info' });
     return;
   }
+  const closingWin = creationWindows.value.find(w => w.id === winId);
   creationWindows.value = creationWindows.value.filter(w => w.id !== winId);
+  winEls.delete(winId);
+
   if (activeConfigId.value === winId) {
     activeConfigId.value = creationWindows.value[0]?.id || null;
   }
-  emit('show-toast', { message: '创作窗口已关闭', type: 'info' });
+  emit('show-toast', { message: `已成功关闭并移除 [${closingWin?.name || '创作窗口'}]`, type: 'info' });
 };
 
 // 触发特定创作窗口的独立生图
@@ -610,6 +624,9 @@ const triggerGenerateForWindow = (win) => {
 
   win.isGenerating = true;
   activeConfigId.value = win.id;
+
+  // 关键：新任务启动时，清空当前窗口上一轮生成产物连线，为本次任务的多张新图准备连线
+  win.recentGeneratedIds = [];
 
   const refImagesUrls = (win.refImages || []).map(img => img.url);
   const parentIds = (win.refImages || []).filter(img => img.parentId).map(img => img.parentId);
@@ -879,12 +896,18 @@ const separateGeneratedNode = (nodeId) => {
     recentGeneratedNodeId.value = null;
   }
 
+  // 找到对应的生成源创作窗口
+  const targetWin = (node.sourceWindowId && creationWindows.value.find(w => w.id === node.sourceWindowId)) || activeConfigNode.value || creationWindows.value[0];
+  if (targetWin && targetWin.recentGeneratedIds) {
+    targetWin.recentGeneratedIds = targetWin.recentGeneratedIds.filter(id => id !== nodeId);
+  }
+
   // 如果生成时使用了参考图，为其建立血统小方框
   const parentIds = Array.isArray(node.sourceRefIds) ? node.sourceRefIds : [];
   if (parentIds.length > 0) {
     const parentNodes = imageNodes.value.filter(n => parentIds.includes(n.id));
-    let refAvgX = configNode.x - 80;
-    let refAvgY = configNode.y;
+    let refAvgX = (targetWin ? targetWin.x : 100) - 80;
+    let refAvgY = (targetWin ? targetWin.y : 120);
     if (parentNodes.length > 0) {
       refAvgX = parentNodes.reduce((sum, p) => sum + (p.x + (p.width || 280)), 0) / parentNodes.length;
       refAvgY = parentNodes.reduce((sum, p) => sum + (p.y + Math.round(getNodeHeight(p) / 2)), 0) / parentNodes.length;
@@ -910,8 +933,10 @@ const separateGeneratedNode = (nodeId) => {
   }
 
   // 创作中心同时独立，原本连接到四周的参考线全部清除
-  configNode.refImages = [];
-  configNode.parentImageId = null;
+  if (targetWin) {
+    targetWin.refImages = [];
+    targetWin.parentImageId = null;
+  }
 
   emit('show-toast', { 
     message: parentIds.length > 0 ? '已确立为独立分支，并建立提示词血统节点！' : '图片已独立，创作中心已就绪！', 
@@ -933,7 +958,10 @@ const copyPipelinePrompt = (text, pipeId) => {
 };
 
 const reusePipelinePrompt = (text) => {
-  configNode.prompt = text;
+  const targetWin = activeConfigNode.value || creationWindows.value[0];
+  if (targetWin) {
+    targetWin.prompt = text;
+  }
   activePipelineId.value = null;
   emit('show-toast', { message: '提示词已填入创作中心', type: 'info' });
 };
@@ -990,10 +1018,10 @@ const copyPromptText = (text, nodeId) => {
 // 画布上的图片节点数组
 const imageNodes = ref([]);
 
-// 视口变换样式
+// 视口变换样式 (采用整数像素平移，消除亚像素抖动与模糊)
 const worldTransformStyle = computed(() => {
   return {
-    transform: `translate3d(${panX.value}px, ${panY.value}px, 0) scale(${scale.value})`
+    transform: `translate(${Math.round(panX.value)}px, ${Math.round(panY.value)}px) scale(${scale.value})`
   };
 });
 
@@ -1136,9 +1164,16 @@ const activeLinks = computed(() => {
       });
     }
 
-    // 1.2 从该创作窗口连向最新生成图的高亮输出连线
-    if (recentGeneratedNodeId.value) {
-      const recentNode = imageNodes.value.find(n => n.id === recentGeneratedNodeId.value);
+    // 1.2 从该创作窗口连向最新生成图的高亮输出连线 (支持同一次任务生成多张时，多张图同时各连一根发光线)
+    const recentTargetIds = [];
+    if (win.recentGeneratedIds && win.recentGeneratedIds.length > 0) {
+      recentTargetIds.push(...win.recentGeneratedIds);
+    } else if (recentGeneratedNodeId.value && win.id === activeConfigId.value) {
+      recentTargetIds.push(recentGeneratedNodeId.value);
+    }
+
+    recentTargetIds.forEach(targetId => {
+      const recentNode = imageNodes.value.find(n => n.id === targetId);
       if (recentNode && recentNode.isRecentGenerated) {
         // 如果该节点由当前窗口产生，或者属于当前获得焦点的窗口
         const isBelong = recentNode.sourceWindowId ? (recentNode.sourceWindowId === win.id) : (win.id === activeConfigId.value);
@@ -1166,7 +1201,7 @@ const activeLinks = computed(() => {
           });
         }
       }
-    }
+    });
   });
 
   // 3. 提示词血统小方框连线 (参考图 -> 小方框 -> 生成图)
@@ -1455,15 +1490,21 @@ const animateNodesSmooth = (nodeMoveList, duration = 520, onComplete = null) => 
   nodeAnimId = requestAnimationFrame(frame);
 };
 
-// 视角重置：平滑柔和地对焦至创作配置中心卡片
+// 视角重置：平滑柔和地对焦至当前活跃创作配置中心卡片
 const fitView = () => {
   if (!viewportRef.value) return;
   const vRect = viewportRef.value.getBoundingClientRect();
   const targetScale = 0.95;
   
-  // 创作框宽 432px，高约 260px，中心点 (configNode.x + 216, configNode.y + 130)
-  const nodeCenterX = configNode.x + 216;
-  const nodeCenterY = configNode.y + 130;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  const winX = win ? win.x : 100;
+  const winY = win ? win.y : 120;
+  const el = win ? winEls.get(win.id) : null;
+  const winW = el?.offsetWidth || 440;
+  const winH = el?.offsetHeight || 360;
+
+  const nodeCenterX = Math.round(winX + winW / 2);
+  const nodeCenterY = Math.round(winY + winH / 2);
   
   const targetPanX = Math.round(vRect.width / 2 - nodeCenterX * targetScale);
   const targetPanY = Math.round(vRect.height / 2 - nodeCenterY * targetScale);
@@ -1472,32 +1513,24 @@ const fitView = () => {
   emit('show-toast', { message: '视角已平滑聚焦至创作配置中心', type: 'info' });
 };
 
-// 触发生成事件 (支持多图与单图数组传递)
+// 触发生成事件 (兼容旧调用，默认调用当前活跃窗口)
 const triggerGenerate = () => {
-  if (!configNode.prompt.trim() || props.isGenerating) return;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win || !win.prompt.trim() || props.isGenerating) return;
 
-  const refImagesUrls = (configNode.refImages || []).map(img => img.url);
-  const parentIds = (configNode.refImages || []).filter(img => img.parentId).map(img => img.parentId);
-
-  emit('generate', {
-    prompt: configNode.prompt.trim(),
-    model: props.currentSettings?.model || 'gpt-image-2.5-flare',
-    ratio: props.currentSettings?.ratio || '1:1',
-    refImage: refImagesUrls[0] || null, // 保持向后兼容
-    refImages: refImagesUrls,           // 新增多图列表
-    parentId: parentIds[0] || null,     // 保持向后兼容
-    parentIds: parentIds                // 多个父级 ID 列表
-  });
+  triggerGenerateForWindow(win);
 };
 
 // 本地参考图上传 (支持一次多选，上限 16 张，自动前端画布降采样压缩)
 const handleLocalRefUpload = (e) => {
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win) return;
   const files = Array.from(e.target.files || []);
   if (files.length === 0) return;
 
-  if (!configNode.refImages) configNode.refImages = [];
+  if (!win.refImages) win.refImages = [];
 
-  const availableSlots = 16 - configNode.refImages.length;
+  const availableSlots = 16 - win.refImages.length;
   if (availableSlots <= 0) {
     emit('show-toast', { message: '参考图数量已达上限 (单次最多 16 张)', type: 'error' });
     e.target.value = '';
@@ -1533,17 +1566,17 @@ const handleLocalRefUpload = (e) => {
         ctx.drawImage(img, 0, 0, width, height);
 
         const compressedDataUrl = canvas.toDataURL('image/png');
-        configNode.refImages.push({
+        win.refImages.push({
           id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
           url: compressedDataUrl,
-          name: `Image ${configNode.refImages.length + 1}`,
+          name: `Image ${win.refImages.length + 1}`,
           parentId: null
         });
 
         processedCount++;
         if (processedCount === filesToProcess.length) {
           emit('show-toast', { 
-            message: `成功载入 ${filesToProcess.length} 张本地参考图 (当前共 ${configNode.refImages.length}/16 张)`, 
+            message: `成功载入 ${filesToProcess.length} 张本地参考图 (当前共 ${win.refImages.length}/16 张)`, 
             type: 'info' 
           });
         }
@@ -1558,42 +1591,50 @@ const handleLocalRefUpload = (e) => {
 
 // 移除单个参考图
 const removeRefImage = (index) => {
-  if (configNode.refImages) {
-    const removed = configNode.refImages.splice(index, 1)[0];
-    if (configNode.refImages.length === 0) {
-      configNode.parentImageId = null;
-    } else if (removed && configNode.parentImageId === (removed.parentId || removed.id)) {
-      configNode.parentImageId = configNode.refImages[0].parentId || configNode.refImages[0].id || null;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (win && win.refImages) {
+    const removed = win.refImages.splice(index, 1)[0];
+    if (win.refImages.length === 0) {
+      win.parentImageId = null;
+    } else if (removed && win.parentImageId === (removed.parentId || removed.id)) {
+      win.parentImageId = win.refImages[0].parentId || win.refImages[0].id || null;
     }
-    emit('show-toast', { message: `已移出参考图 (剩余 ${configNode.refImages.length} 张)`, type: 'info' });
+    emit('show-toast', { message: `已移出参考图 (剩余 ${win.refImages.length} 张)`, type: 'info' });
   }
 };
 
 // 清空全部参考图 (恢复为纯独立文生图)
 const clearConfigRefImages = () => {
-  configNode.refImages = [];
-  configNode.parentImageId = null;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (win) {
+    win.refImages = [];
+    win.parentImageId = null;
+  }
   emit('show-toast', { message: '已清空参考组合，图片已独立，切换为纯文生图', type: 'info' });
 };
 
 // 快捷向提示词注入 [Image N] 引用
 const insertImageRefToPrompt = (imageIndex) => {
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win) return;
   const refTag = `Image ${imageIndex}`;
-  if (!configNode.prompt.includes(refTag)) {
-    if (configNode.prompt.trim().length > 0) {
-      configNode.prompt += `，融合 ${refTag} 的视觉特征`;
+  if (!win.prompt.includes(refTag)) {
+    if (win.prompt.trim().length > 0) {
+      win.prompt += `，融合 ${refTag} 的视觉特征`;
     } else {
-      configNode.prompt = `以 ${refTag} 为主要参考，`;
+      win.prompt = `以 ${refTag} 为主要参考，`;
     }
   } else {
-    configNode.prompt += ` ${refTag}`;
+    win.prompt += ` ${refTag}`;
   }
   emit('show-toast', { message: `已在提示词插入 [${refTag}] 引用`, type: 'info' });
 };
 
 // 插入典型多图融合提示词模版
 const insertBlendTemplate = () => {
-  const count = configNode.refImages?.length || 0;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win) return;
+  const count = win.refImages?.length || 0;
   let template = '';
   if (count === 2) {
     template = '\n将 Image 1 的构图与主体角色，与 Image 2 的艺术画风、材质纹理完美融合。';
@@ -1602,7 +1643,7 @@ const insertBlendTemplate = () => {
   } else {
     template = '\n参考 Image 1 的视觉细节进行高质量衍生优化。';
   }
-  configNode.prompt = (configNode.prompt.trim() + template).trim();
+  win.prompt = (win.prompt.trim() + template).trim();
   emit('show-toast', { message: '已填充多图融合提示词模版！', type: 'success' });
 };
 
@@ -1613,7 +1654,10 @@ const branchFromImage = (node) => {
 
 // 将画面的 Prompt 拷贝到配置框
 const copyPromptToConfig = (prompt) => {
-  configNode.prompt = prompt;
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (win) {
+    win.prompt = prompt;
+  }
   emit('show-toast', { message: '提示词已填入创作配置中心', type: 'info' });
 };
 
@@ -1631,15 +1675,20 @@ const downloadImage = (node) => {
 const removeNodeFromCanvas = (id) => {
   imageNodes.value = imageNodes.value.filter(n => n.id !== id);
   // 深度同步：若该节点在创作中心的参考组中，立即同步移除
-  if (configNode.refImages) {
-    configNode.refImages = configNode.refImages.filter(img => img.id !== id && img.parentId !== id);
-    if (configNode.refImages.length === 0) {
-      configNode.parentImageId = null;
+  creationWindows.value.forEach(win => {
+    if (win.refImages) {
+      win.refImages = win.refImages.filter(img => img.id !== id && img.parentId !== id);
+      if (win.refImages.length === 0) {
+        win.parentImageId = null;
+      }
     }
-  }
-  if (configNode.parentImageId === id) {
-    configNode.parentImageId = null;
-  }
+    if (win.parentImageId === id) {
+      win.parentImageId = null;
+    }
+    if (win.recentGeneratedIds) {
+      win.recentGeneratedIds = win.recentGeneratedIds.filter(gid => gid !== id);
+    }
+  });
   // 清理涉及该节点的衍生记录
   derivationPipelines.value = derivationPipelines.value.filter(p => p.childId !== id && !p.parentIds.includes(id));
   if (recentGeneratedNodeId.value === id) {
@@ -1651,8 +1700,13 @@ const removeNodeFromCanvas = (id) => {
 // 清空当前画布
 const clearCanvasNodes = () => {
   imageNodes.value = [];
-  configNode.refImages = [];
-  configNode.parentImageId = null;
+  creationWindows.value.forEach(win => {
+    win.refImages = [];
+    win.parentImageId = null;
+    win.recentGeneratedIds = [];
+  });
+  derivationPipelines.value = [];
+  recentGeneratedNodeId.value = null;
   activePromptNodeId.value = null;
   recentGeneratedNodeId.value = null;
   derivationPipelines.value = [];
@@ -1869,7 +1923,7 @@ const autoOrganizeNodes = () => {
   });
 };
 
-// 监听新的生成图片，推送到画布中呈现 (支持定位到触发该生成的创作窗口)
+// 监听新的生成图片，推送到画布中呈现 (支持定位到触发该生成的创作窗口，并支持一次生成多张各连一根发光线)
 const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, windowId = null) => {
   let parents = [];
   if (Array.isArray(parentIds)) {
@@ -1888,7 +1942,7 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
   const winW = el?.offsetWidth || 440;
 
   let targetX = (sourceWin ? sourceWin.x : 100) + winW + 70;
-  let targetY = (sourceWin ? sourceWin.y : 100);
+  let targetY = (sourceWin ? sourceWin.y : 120);
 
   if (parents.length > 0) {
     const parentNodes = imageNodes.value.filter(n => parents.includes(n.id));
@@ -1911,8 +1965,8 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
     model: record.model,
     ratio: record.ratio || '1:1',
     width: 290,
-    x: targetX,
-    y: targetY,
+    x: Math.round(targetX),
+    y: Math.round(targetY),
     parentId: parents[0] || null,
     parentIds: parents,
     isRecentGenerated: true,
@@ -1927,21 +1981,32 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
   imageNodes.value.push(newNode);
   selectedNodeId.value = newNode.id;
   recentGeneratedNodeId.value = newNode.id;
+
+  // 关键：将新图加入该窗口的近期生成产物列表 (支持单次生图任务一次生成多张各连一根发光线)
+  if (sourceWin) {
+    if (!sourceWin.recentGeneratedIds) sourceWin.recentGeneratedIds = [];
+    sourceWin.recentGeneratedIds.push(newNode.id);
+  }
 };
 
 // 外部调用：兼容旧方法
 const loadExternalImageToCanvas = (item) => {
   let existing = imageNodes.value.find(n => n.id === item.id);
+  const win = activeConfigNode.value || creationWindows.value[0];
+  const winX = win ? win.x : 100;
+  const winY = win ? win.y : 120;
+  const el = win ? winEls.get(win.id) : null;
+  const winW = el?.offsetWidth || 440;
+
   if (!existing) {
-    const configW = configRealWidth.value || 440;
     existing = {
       id: item.id,
       url: item.url,
       prompt: item.prompt,
       model: item.model,
       width: 280,
-      x: configNode.x + configW + 70,
-      y: configNode.y + 40,
+      x: Math.round(winX + winW + 70),
+      y: Math.round(winY + 40),
       parentId: null
     };
     imageNodes.value.push(existing);
@@ -1951,28 +2016,30 @@ const loadExternalImageToCanvas = (item) => {
 
 // 外部调用新功能：画廊点击“设为参考图”（加入画布 + 设为参考图，放置在创作中心左侧空闲位置，绝不悬浮重叠）
 const addGalleryItemAsReference = (item) => {
-  if (!configNode.refImages) configNode.refImages = [];
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win) return { added: false, message: '无可用创作窗口' };
+  if (!win.refImages) win.refImages = [];
 
-  const existingInRef = configNode.refImages.find(r => r.id === item.id || r.parentId === item.id);
+  const existingInRef = win.refImages.find(r => r.id === item.id || r.parentId === item.id);
   if (existingInRef) {
     // 如果已经在参考中，移出它
     removeNodeFromRefImages(item.id);
     return { added: false, message: '已从参考组合中移出' };
   }
 
-  if (configNode.refImages.length >= 16) {
+  if (win.refImages.length >= 16) {
     emit('show-toast', { message: '已达参考图上限 (单次最多 16 张)', type: 'error' });
     return { added: false, message: '已达上限' };
   }
 
-  // 确保在画布上有节点卡片
+  // 确保在画布上有合法坐标的节点卡片
   let node = imageNodes.value.find(n => n.id === item.id);
   if (!node) {
-    const refCount = configNode.refImages.length;
+    const refCount = win.refImages.length;
     const col = Math.floor(refCount / 4);
     const row = refCount % 4;
-    const posX = configNode.x - 340 - col * 310;
-    const posY = configNode.y + row * 180 - 40;
+    const posX = Math.round(win.x - 340 - col * 310);
+    const posY = Math.round(win.y + row * 180 - 40);
 
     node = {
       id: item.id,
@@ -1987,20 +2054,20 @@ const addGalleryItemAsReference = (item) => {
     imageNodes.value.push(node);
   }
 
-  if (configNode.refImages.length === 0) {
-    configNode.prompt = '';
-    configNode.parentImageId = item.id;
+  if (win.refImages.length === 0) {
+    win.prompt = '';
+    win.parentImageId = item.id;
   }
 
-  configNode.refImages.push({
+  win.refImages.push({
     id: item.id,
     url: item.url,
-    name: `Image ${configNode.refImages.length + 1}`,
+    name: `Image ${win.refImages.length + 1}`,
     parentId: item.id
   });
 
   selectedNodeId.value = item.id;
-  return { added: true, index: configNode.refImages.length };
+  return { added: true, index: win.refImages.length };
 };
 
 // 外部调用新功能：画廊点击“加入到画布”（仅加入画布作为独立图片，不设为参考图，放置在创作中心右侧空闲位置）
@@ -2011,12 +2078,17 @@ const addGalleryItemToCanvas = (item) => {
     return { alreadyExists: true };
   }
 
+  const win = activeConfigNode.value || creationWindows.value[0];
+  const winX = win ? win.x : 100;
+  const winY = win ? win.y : 120;
+  const el = win ? winEls.get(win.id) : null;
+  const winW = el?.offsetWidth || 440;
+
   const existingCount = imageNodes.value.length;
   const col = Math.floor(existingCount / 3);
   const row = existingCount % 3;
-  const configW = configRealWidth.value || 440;
-  const posX = configNode.x + configW + 70 + col * 310;
-  const posY = configNode.y + row * 190;
+  const posX = Math.round(winX + winW + 70 + col * 310);
+  const posY = Math.round(winY + row * 190);
 
   const newNode = {
     id: item.id,
@@ -2035,9 +2107,12 @@ const addGalleryItemToCanvas = (item) => {
 
 // 批量从画廊设为参考图
 const batchAddGalleryItemsAsReference = (items) => {
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (!win) return 0;
+  if (!win.refImages) win.refImages = [];
   let count = 0;
   items.forEach(item => {
-    if (configNode.refImages.length < 16 && !configNode.refImages.some(r => r.id === item.id || r.parentId === item.id)) {
+    if (win.refImages.length < 16 && !win.refImages.some(r => r.id === item.id || r.parentId === item.id)) {
       addGalleryItemAsReference(item);
       count++;
     }
@@ -2087,6 +2162,9 @@ onMounted(() => {
 
   if (props.historyItems && props.historyItems.length > 0 && imageNodes.value.length === 0) {
     const initialItems = props.historyItems.slice(0, 4);
+    const win = activeConfigNode.value || creationWindows.value[0];
+    const winX = win ? win.x : 100;
+    const winY = win ? win.y : 120;
     initialItems.forEach((item, idx) => {
       imageNodes.value.push({
         id: item.id,
@@ -2094,8 +2172,8 @@ onMounted(() => {
         prompt: item.prompt,
         model: item.model,
         width: 280,
-        x: configNode.x + 500 + Math.floor(idx / 2) * 320,
-        y: configNode.y + (idx % 2) * 360,
+        x: Math.round(winX + 500 + Math.floor(idx / 2) * 320),
+        y: Math.round(winY + (idx % 2) * 360),
         parentId: null
       });
     });
@@ -2160,7 +2238,6 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   transform-origin: 0 0;
-  will-change: transform;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -2271,10 +2348,9 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   cursor: default;
   transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, transform 0.1s ease-out;
-  transform-style: preserve-3d;
-  backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* 性能优化：拖拽时关闭 transition，开启 will-change 与硬件加速 */
@@ -2322,13 +2398,17 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-lg);
 }
 
-/* 1. 生图主控制节点 (圆润饱满) */
+/* 1. 生图主控制节点 (圆润饱满、高清晰度毛玻璃) */
 .config-node {
   width: 440px;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: rgba(14, 18, 32, 0.92);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  text-rendering: optimizeLegibility;
 }
 
 .config-active-specs {
@@ -2380,6 +2460,12 @@ onUnmounted(() => {
   cursor: move;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
+}
+
+.node-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .node-title {
@@ -3395,12 +3481,12 @@ onUnmounted(() => {
 }
 
 .win-close-btn {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
   color: var(--text-muted);
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3409,13 +3495,14 @@ onUnmounted(() => {
 }
 
 .win-close-btn:hover {
-  background: var(--accent-coral-bg);
-  color: var(--color-error);
+  background: rgba(244, 63, 94, 0.2);
+  border-color: rgba(244, 63, 94, 0.5);
+  color: #fb7185;
 }
 
 .add-win-dock-btn {
   width: auto !important;
-  padding: 0 10px;
+  padding: 0 11px;
   gap: 5px;
   background: var(--primary-gradient);
   color: #ffffff !important;
@@ -3426,6 +3513,25 @@ onUnmounted(() => {
 .add-win-dock-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.remove-win-dock-btn {
+  width: auto !important;
+  padding: 0 11px;
+  gap: 5px;
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.3) !important;
+  color: #fb7185 !important;
+  font-weight: 600;
+  transition: var(--transition-fast);
+}
+
+.remove-win-dock-btn:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: rgba(244, 63, 94, 0.6) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
 }
 
 .dock-btn-label {
