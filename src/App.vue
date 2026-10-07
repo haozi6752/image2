@@ -223,6 +223,7 @@ import {
   cacheImage, 
   getCachedImageUrl 
 } from './utils/db';
+import { createThumbnail } from './utils/thumbnail';
 
 // 当前页面标签：'canvas' (灵感画布) | 'gallery' (成果画廊)
 const currentTab = ref('canvas');
@@ -413,7 +414,7 @@ onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
 });
 
-// 解析 IndexedDB 离线缓存
+// 解析 IndexedDB 离线缓存与轻量缩略图
 const resolveOfflineUrls = async () => {
   for (let i = 0; i < historyList.value.length; i++) {
     const item = historyList.value[i];
@@ -421,6 +422,12 @@ const resolveOfflineUrls = async () => {
     if (localUrl !== item.url) {
       item.url = localUrl;
     }
+    // 异步生成/绑定轻量缩略图
+    createThumbnail(item.url).then(tUrl => {
+      if (tUrl && tUrl !== item.url) {
+        item.thumbnailUrl = tUrl;
+      }
+    }).catch(() => {});
   }
 };
 
@@ -624,9 +631,11 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
     for (let i = 0; i < imageUrls.length; i++) {
       const imgUrl = imageUrls[i];
       const recordId = baseTimestamp + i;
+      const thumbUrl = await createThumbnail(imgUrl).catch(() => null);
       const newRecord = {
         id: recordId,
         url: imgUrl,
+        thumbnailUrl: thumbUrl || null,
         prompt: finalPrompt,
         width: genSettings.value.width,
         height: genSettings.value.height,
@@ -700,9 +709,11 @@ const generateFromBottomInput = async (promptText) => {
     for (let i = 0; i < imageUrls.length; i++) {
       const imgUrl = imageUrls[i];
       const recordId = baseTimestamp + i;
+      const thumbUrl = await createThumbnail(imgUrl).catch(() => null);
       const newRecord = {
         id: recordId,
         url: imgUrl,
+        thumbnailUrl: thumbUrl || null,
         prompt: finalPrompt,
         width: genSettings.value.width,
         height: genSettings.value.height,

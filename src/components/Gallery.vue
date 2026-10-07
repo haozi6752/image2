@@ -70,7 +70,7 @@
           @dblclick.stop="!isBatchMode ? preview(item) : null" 
           :title="isBatchMode ? '点击选中/取消' : '双击图片全屏阅览大图'"
         >
-          <img :src="item.url" :alt="item.prompt" class="gallery-img" loading="lazy" decoding="async" />
+          <img :src="item.thumbnailUrl || item.url" :alt="item.prompt" class="gallery-img" loading="lazy" decoding="async" />
           
           <!-- 多选模式下的复选框 -->
           <div 

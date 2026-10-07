@@ -14,14 +14,21 @@
     <!-- 背景网格坐标层 (优化：仅铺满 100% 视口，消除 20000x20000 的巨型图层重绘卡顿) -->
     <div class="canvas-grid-bg" ref="gridEl" :style="gridBackgroundStyle"></div>
 
+    <!-- Canvas 2D 高性能批量连线渲染层 (视口原生分辨率，零 DOM 节点，硬件批量绘制) -->
+    <canvas 
+      v-show="renderEngine === 'canvas'"
+      ref="connectionsCanvasRef"
+      class="connections-canvas-layer"
+    ></canvas>
+
     <!-- 无限画布转换容器 -->
     <div 
       class="canvas-world" 
       ref="worldEl"
       :style="worldTransformStyle"
     >
-      <!-- 贝塞尔连线 SVG 层 -->
-      <svg class="connections-layer">
+      <!-- 贝塞尔连线 SVG 层 (SVG 矢量双模引擎) -->
+      <svg v-if="renderEngine === 'svg'" class="connections-layer">
         <defs>
           <!-- 1. 当前活跃参考连线：紫蓝渐变 -->
           <linearGradient id="linkGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -150,7 +157,7 @@
                   class="ref-thumbnail-card"
                   :title="`参考图 [Image ${idx + 1}]`"
                 >
-                  <img :src="img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" decoding="async" loading="lazy" />
+                  <img :src="img.thumbnailUrl || img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" decoding="async" loading="lazy" />
                   <span class="ref-order-tag">Image {{ idx + 1 }}</span>
                   <button class="remove-ref-btn" @click.stop="removeWindowRefImage(win, idx)" title="移除此参考图">
                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -284,7 +291,7 @@
             @dblclick.stop="$emit('preview', node)"
             title="双击图片放大预览"
           >
-            <img :src="node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" />
+            <img :src="node.thumbnailUrl || node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" />
             
             <!-- 悬浮操作面板 -->
             <div class="img-hover-overlay" @mousedown.stop>
@@ -505,6 +512,16 @@
 
         <!-- 视图与整理操作 -->
         <div class="dock-group">
+          <!-- 连线渲染双模引擎切换 (Canvas 2D 硬件批量绘制 vs SVG 矢量) -->
+          <button 
+            class="dock-btn render-engine-dock-btn" 
+            :class="{ active: renderEngine === 'canvas' }" 
+            @click="toggleRenderEngine" 
+            :title="renderEngine === 'canvas' ? '连线引擎: Canvas 2D 硬件批量绘制 (超低开销满帧渲染，点击切换为 SVG)' : '连线引擎: SVG 矢量模式 (点击切换为 Canvas 2D)'"
+          >
+            <span class="engine-badge">{{ renderEngine === 'canvas' ? 'CANVAS' : 'SVG' }}</span>
+          </button>
+
           <!-- 视角重置居中 -->
           <button class="dock-btn" @click="fitView" title="聚焦配置中心">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
@@ -526,7 +543,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { createThumbnail } from '../utils/thumbnail';
 
 const props = defineProps({
   isGenerating: Boolean,
@@ -539,6 +557,48 @@ const emit = defineEmits(['generate', 'preview', 'show-toast', 'update-settings'
 const viewportRef = ref(null);
 const worldEl = ref(null);
 const gridEl = ref(null);
+
+// 连线渲染双模引擎：'canvas' (Canvas 2D 硬件批量绘制，极速满帧，默认) | 'svg' (SVG 矢量 DOM 模式)
+const renderEngine = ref(localStorage.getItem('connections_render_engine') || 'canvas');
+
+const connectionsCanvasRef = ref(null);
+let canvasWidth = 0;
+let canvasHeight = 0;
+let currentDpr = 1;
+let animFrameId = null;
+let globalDashOffset = 0;
+let lastFrameTime = performance.now();
+let viewportResizeObserver = null;
+
+// 切换连线渲染双模引擎
+const toggleRenderEngine = () => {
+  renderEngine.value = renderEngine.value === 'canvas' ? 'svg' : 'canvas';
+  localStorage.setItem('connections_render_engine', renderEngine.value);
+  emit('show-toast', {
+    message: renderEngine.value === 'canvas' 
+      ? '已启用 Canvas 2D 极速批量连线引擎 (超低开销，满帧渲染)' 
+      : '已切换至 SVG 矢量连线引擎 (高精矢量 DOM)',
+    type: 'info'
+  });
+  if (renderEngine.value === 'canvas') {
+    nextTick(() => {
+      updateCanvasSize();
+      drawConnections(panX.value, panY.value, scale.value);
+    });
+  }
+};
+
+// 自动为节点生成并绑定轻量缩略图 (释放 95%+ GPU 纹理显存)
+const ensureNodeThumbnail = (node) => {
+  if (!node || !node.url) return;
+  if (!node.thumbnailUrl) {
+    createThumbnail(node.url).then(tUrl => {
+      if (tUrl && tUrl !== node.url) {
+        node.thumbnailUrl = tUrl;
+      }
+    }).catch(() => {});
+  }
+};
 
 // 画布视口平移与缩放
 const panX = ref(150);
@@ -711,12 +771,18 @@ const handleWindowLocalRefUpload = (win, e) => {
         ctx.drawImage(img, 0, 0, width, height);
 
         const compressedDataUrl = canvas.toDataURL('image/png');
-        win.refImages.push({
-          id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        const localId = 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        const refItem = {
+          id: localId,
           url: compressedDataUrl,
+          thumbnailUrl: null,
           name: `Image ${win.refImages.length + 1}`,
           parentId: null
-        });
+        };
+        win.refImages.push(refItem);
+        createThumbnail(compressedDataUrl).then(thumb => {
+          if (thumb) refItem.thumbnailUrl = thumb;
+        }).catch(() => {});
 
         processedCount++;
         if (processedCount === filesToProcess.length) {
@@ -1122,6 +1188,10 @@ const calculateSmartConnector = (rectFrom, rectTo) => {
     fromY: ptFrom.y,
     toX: ptTo.x,
     toY: ptTo.y,
+    c1x,
+    c1y,
+    c2x,
+    c2y,
     path
   };
 };
@@ -1178,6 +1248,10 @@ const activeLinks = computed(() => {
           fromY: conn.fromY,
           toX: conn.toX,
           toY: conn.toY,
+          c1x: conn.c1x,
+          c1y: conn.c1y,
+          c2x: conn.c2x,
+          c2y: conn.c2y,
           path: conn.path
         });
       });
@@ -1216,6 +1290,10 @@ const activeLinks = computed(() => {
             fromY: conn.fromY,
             toX: conn.toX,
             toY: conn.toY,
+            c1x: conn.c1x,
+            c1y: conn.c1y,
+            c2x: conn.c2x,
+            c2y: conn.c2y,
             path: conn.path
           });
         }
@@ -1256,6 +1334,10 @@ const activeLinks = computed(() => {
           fromY: conn.fromY,
           toX: conn.toX,
           toY: conn.toY,
+          c1x: conn.c1x,
+          c1y: conn.c1y,
+          c2x: conn.c2x,
+          c2y: conn.c2y,
           path: conn.path
         });
       }
@@ -1279,12 +1361,209 @@ const activeLinks = computed(() => {
       fromY: connOut.fromY,
       toX: connOut.toX,
       toY: connOut.toY,
+      c1x: connOut.c1x,
+      c1y: connOut.c1y,
+      c2x: connOut.c2x,
+      c2y: connOut.c2y,
       path: connOut.path
     });
   });
 
   return links;
 });
+
+// 更新 Canvas 视口物理像素尺寸 (适应 HiDPI / Retina 屏)
+const updateCanvasSize = () => {
+  const canvas = connectionsCanvasRef.value;
+  const viewport = viewportRef.value;
+  if (!canvas || !viewport) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = viewport.clientWidth;
+  const h = viewport.clientHeight;
+
+  if (canvasWidth !== w || canvasHeight !== h || currentDpr !== dpr) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    canvasWidth = w;
+    canvasHeight = h;
+    currentDpr = dpr;
+  }
+};
+
+// 核心：Canvas 2D 批量绘制所有贝塞尔连线与物理端点
+const drawConnections = (curPanX, curPanY, curScale) => {
+  const canvas = connectionsCanvasRef.value;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = currentDpr || window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const links = activeLinks.value;
+  if (!links || links.length === 0) return;
+
+  // 视口视锥剔除 (Viewport AABB Culling，跳过视口外无意义计算与绘制)
+  const margin = 160;
+  const visMinX = (-curPanX) / curScale - margin;
+  const visMaxX = (canvasWidth - curPanX) / curScale + margin;
+  const visMinY = (-curPanY) / curScale - margin;
+  const visMaxY = (canvasHeight - curPanY) / curScale + margin;
+
+  const visibleLinks = links.filter(l => {
+    const minX = Math.min(l.fromX, l.toX, l.c1x, l.c2x);
+    const maxX = Math.max(l.fromX, l.toX, l.c1x, l.c2x);
+    const minY = Math.min(l.fromY, l.toY, l.c1y, l.c2y);
+    const maxY = Math.max(l.fromY, l.toY, l.c1y, l.c2y);
+    return maxX >= visMinX && minX <= visMaxX && maxY >= visMinY && minY <= visMaxY;
+  });
+
+  if (visibleLinks.length === 0) return;
+
+  ctx.save();
+  // 设定与 canvas-world 完全一致的世界空间变换矩阵 (屏幕像素级对齐)
+  ctx.setTransform(curScale * dpr, 0, 0, curScale * dpr, curPanX * dpr, curPanY * dpr);
+
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light' || document.body.classList.contains('light-theme');
+
+  // ===== 第一阶段 (Pass 1)：底层暗色/亮色立体衬托描边 (一次性批量 BeginPath & Stroke) =====
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(11, 15, 25, 0.95)';
+  ctx.lineWidth = 7.4;
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  for (let i = 0; i < visibleLinks.length; i++) {
+    const l = visibleLinks[i];
+    ctx.moveTo(l.fromX, l.fromY);
+    ctx.bezierCurveTo(l.c1x, l.c1y, l.c2x, l.c2y, l.toX, l.toY);
+  }
+  ctx.stroke(); // 整个画布仅 1 次 Draw Call 完成所有连线底层立体阴影与交叉分层！
+  ctx.restore();
+
+  // ===== 第二阶段 (Pass 2)：高精度流光渐变曲线绘制 =====
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (let i = 0; i < visibleLinks.length; i++) {
+    const l = visibleLinks[i];
+    const isHighlighted = hoveredNodeId.value && l.id.includes(hoveredNodeId.value);
+    const isFaded = l.type === 'heritage' && isAnyRefActive.value && hoveredPipelineId.value !== l.pipelineId;
+
+    ctx.save();
+
+    // 透明度处理
+    if (isFaded) {
+      ctx.globalAlpha = 0.18;
+    } else {
+      ctx.globalAlpha = 1.0;
+    }
+
+    // 虚线与流动偏移
+    let dashOffset = globalDashOffset;
+    if (l.type === 'recent-output') {
+      ctx.setLineDash([8, 3]);
+      dashOffset = globalDashOffset * 2.2;
+    } else if (l.type === 'heritage') {
+      ctx.setLineDash([5, 4]);
+      dashOffset = globalDashOffset * 0.72;
+    } else {
+      ctx.setLineDash([6, 3]);
+    }
+    ctx.lineDashOffset = dashOffset;
+
+    // 线宽与发光阴影
+    if (isHighlighted) {
+      ctx.lineWidth = 3.6;
+      ctx.shadowColor = 'rgba(168, 85, 247, 0.85)';
+      ctx.shadowBlur = 10;
+    } else if (l.type === 'recent-output') {
+      ctx.lineWidth = 2.8;
+      ctx.shadowColor = 'rgba(16, 185, 129, 0.7)';
+      ctx.shadowBlur = 8;
+    } else {
+      ctx.lineWidth = l.strokeWidth || 2.2;
+      ctx.shadowBlur = 0;
+    }
+
+    // 动态线性渐变 (沿曲线从起点指向终点)
+    const grad = ctx.createLinearGradient(l.fromX, l.fromY, l.toX, l.toY);
+    if (l.type === 'recent-output') {
+      grad.addColorStop(0, '#06b6d4');
+      grad.addColorStop(1, '#10b981');
+    } else if (l.type === 'heritage') {
+      grad.addColorStop(0, '#f59e0b');
+      grad.addColorStop(1, '#fbbf24');
+    } else {
+      grad.addColorStop(0, '#6366f1');
+      grad.addColorStop(1, '#a855f7');
+    }
+    ctx.strokeStyle = grad;
+
+    ctx.beginPath();
+    ctx.moveTo(l.fromX, l.fromY);
+    ctx.bezierCurveTo(l.c1x, l.c1y, l.c2x, l.c2y, l.toX, l.toY);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // ===== 第三阶段 (Pass 3)：物理边缘连接端点 (圆圈锚点) =====
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+
+  for (let i = 0; i < visibleLinks.length; i++) {
+    const l = visibleLinks[i];
+    const isFaded = l.type === 'heritage' && isAnyRefActive.value && hoveredPipelineId.value !== l.pipelineId;
+    ctx.globalAlpha = isFaded ? 0.18 : 1.0;
+
+    const r = l.type === 'recent-output' ? 5 : 4;
+    let fillColor = '#6366f1';
+    if (l.type === 'recent-output') fillColor = '#10b981';
+    else if (l.type === 'heritage') fillColor = '#f59e0b';
+
+    // 起点
+    ctx.beginPath();
+    ctx.arc(l.fromX, l.fromY, r, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.stroke();
+
+    // 终点
+    ctx.beginPath();
+    ctx.arc(l.toX, l.toY, r, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.restore();
+};
+
+// Canvas 2D 流光流动动画循环 (满帧且智能防卡顿)
+const canvasAnimLoop = (now) => {
+  animFrameId = requestAnimationFrame(canvasAnimLoop);
+  if (renderEngine.value !== 'canvas') return;
+  if (document.hidden) return; // 切换后台标签页时彻底休眠节省功耗
+
+  const dt = Math.min(100, now - lastFrameTime);
+  lastFrameTime = now;
+
+  // 在未平移且有活动连线时，顺畅流转虚线 dashOffset
+  if (!isPanning.value && activeLinks.value.length > 0) {
+    globalDashOffset = (globalDashOffset - dt * 0.032) % 1000;
+    drawConnections(panX.value, panY.value, scale.value);
+  }
+};
 
 // 开始平移漫游
 const startPanning = (e) => {
@@ -1361,6 +1640,9 @@ const renderPanDirect = () => {
     const offsetX = Math.round(((currentPanX % gridSize) + gridSize) % gridSize);
     const offsetY = Math.round(((currentPanY % gridSize) + gridSize) % gridSize);
     gridEl.value.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
+  }
+  if (renderEngine.value === 'canvas') {
+    drawConnections(currentPanX, currentPanY, scale.value);
   }
 };
 
@@ -1683,12 +1965,18 @@ const handleLocalRefUpload = (e) => {
         ctx.drawImage(img, 0, 0, width, height);
 
         const compressedDataUrl = canvas.toDataURL('image/png');
-        win.refImages.push({
-          id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        const localId = 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        const refItem = {
+          id: localId,
           url: compressedDataUrl,
+          thumbnailUrl: null,
           name: `Image ${win.refImages.length + 1}`,
           parentId: null
-        });
+        };
+        win.refImages.push(refItem);
+        createThumbnail(compressedDataUrl).then(thumb => {
+          if (thumb) refItem.thumbnailUrl = thumb;
+        }).catch(() => {});
 
         processedCount++;
         if (processedCount === filesToProcess.length) {
@@ -2311,6 +2599,7 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
   const newNode = {
     id: record.id,
     url: record.url,
+    thumbnailUrl: record.thumbnailUrl || null,
     prompt: record.prompt,
     model: record.model,
     ratio: record.ratio || '1:1',
@@ -2329,6 +2618,7 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, wi
   };
 
   imageNodes.value.push(newNode);
+  ensureNodeThumbnail(newNode);
   selectedNodeId.value = newNode.id;
   recentGeneratedNodeId.value = newNode.id;
 
@@ -2349,6 +2639,7 @@ const loadExternalImageToCanvas = (item) => {
     existing = {
       id: item.id,
       url: item.url,
+      thumbnailUrl: item.thumbnailUrl || null,
       prompt: item.prompt,
       model: item.model,
       width: 280,
@@ -2357,6 +2648,7 @@ const loadExternalImageToCanvas = (item) => {
       parentId: null
     };
     imageNodes.value.push(existing);
+    ensureNodeThumbnail(existing);
   }
   selectedNodeId.value = item.id;
 };
@@ -2386,6 +2678,7 @@ const addGalleryItemAsReference = (item) => {
     node = {
       id: item.id,
       url: item.url,
+      thumbnailUrl: item.thumbnailUrl || null,
       prompt: item.prompt,
       model: item.model,
       width: 280,
@@ -2394,6 +2687,7 @@ const addGalleryItemAsReference = (item) => {
       parentId: null
     };
     imageNodes.value.push(node);
+    ensureNodeThumbnail(node);
   }
 
   if (win.refImages.length === 0) {
@@ -2404,6 +2698,7 @@ const addGalleryItemAsReference = (item) => {
   win.refImages.push({
     id: item.id,
     url: item.url,
+    thumbnailUrl: item.thumbnailUrl || null,
     name: `Image ${win.refImages.length + 1}`,
     parentId: item.id
   });
@@ -2426,6 +2721,7 @@ const addGalleryItemToCanvas = (item) => {
   const newNode = {
     id: item.id,
     url: item.url,
+    thumbnailUrl: item.thumbnailUrl || null,
     prompt: item.prompt,
     model: item.model,
     width: 280,
@@ -2434,6 +2730,7 @@ const addGalleryItemToCanvas = (item) => {
     parentId: null
   };
   imageNodes.value.push(newNode);
+  ensureNodeThumbnail(newNode);
   selectedNodeId.value = item.id;
   return { alreadyExists: false };
 };
@@ -2502,17 +2799,47 @@ onMounted(() => {
     const win = activeConfigNode.value || creationWindows.value[0];
     initialItems.forEach((item) => {
       const slot = findSmartSurroundingSlot(win, false);
-      imageNodes.value.push({
+      const initNode = {
         id: item.id,
         url: item.url,
+        thumbnailUrl: item.thumbnailUrl || null,
         prompt: item.prompt,
         model: item.model,
         width: 280,
         x: slot.x,
         y: slot.y,
         parentId: null
-      });
+      };
+      imageNodes.value.push(initNode);
+      ensureNodeThumbnail(initNode);
     });
+  }
+
+  // 启动 Canvas 2D 连线渲染引擎与自适应物理分辨率监听
+  nextTick(() => {
+    updateCanvasSize();
+    if (renderEngine.value === 'canvas') {
+      drawConnections(panX.value, panY.value, scale.value);
+    }
+  });
+
+  if (viewportRef.value) {
+    viewportResizeObserver = new ResizeObserver(() => {
+      updateCanvasSize();
+      if (renderEngine.value === 'canvas') {
+        drawConnections(panX.value, panY.value, scale.value);
+      }
+    });
+    viewportResizeObserver.observe(viewportRef.value);
+  }
+
+  animFrameId = requestAnimationFrame(canvasAnimLoop);
+});
+
+// 监听响应式数据变动即刻重绘 Canvas 连线 (零滞后)
+watch([panX, panY, scale, activeLinks, hoveredNodeId, hoveredPipelineId], () => {
+  if (renderEngine.value === 'canvas') {
+    drawConnections(panX.value, panY.value, scale.value);
   }
 });
 
@@ -2525,6 +2852,14 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onPipeMouseMove);
   window.removeEventListener('mouseup', onPipeMouseUp);
 
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+  if (viewportResizeObserver) {
+    viewportResizeObserver.disconnect();
+    viewportResizeObserver = null;
+  }
   if (configResizeObserver) {
     configResizeObserver.disconnect();
     configResizeObserver = null;
@@ -2646,6 +2981,39 @@ onUnmounted(() => {
   background-image: radial-gradient(var(--canvas-grid-dot) 1.2px, transparent 1.2px);
   background-position: 0 0;
   will-change: transform;
+}
+
+/* Canvas 2D 高性能批量连线渲染图层 (视口原生分辨率，零 DOM 节点，单次 Draw Call 极致流畅) */
+.connections-canvas-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.render-engine-dock-btn {
+  padding: 0 6px !important;
+}
+
+.render-engine-dock-btn .engine-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-indigo);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  transition: all 0.2s ease;
+}
+
+.render-engine-dock-btn.active .engine-badge {
+  background: var(--accent-indigo);
+  color: #ffffff;
+  border-color: var(--accent-indigo);
 }
 
 /* 贝塞尔连线层 (矢量自适应溢出容器，避免 1 亿像素巨型 raster 纹理，硬件层渲染极速流畅) */
