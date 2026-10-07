@@ -165,6 +165,10 @@
               @goto-canvas="currentTab = 'canvas'"
               @show-toast="showToastMsg"
               @send-to-canvas="handleSendToCanvas"
+              @set-as-ref="handleGallerySetAsRef"
+              @add-to-canvas="handleGalleryAddToCanvas"
+              @batch-set-as-ref="handleGalleryBatchSetAsRef"
+              @batch-add-to-canvas="handleGalleryBatchAddToCanvas"
             />
           </div>
         </div>
@@ -722,7 +726,7 @@ const generateFromBottomInput = async (promptText) => {
   }
 };
 
-// 从画廊卡片点击“在灵感画布中参考衍生”
+// 从画廊卡片点击“在灵感画布中参考衍生” (保留兼容)
 const handleSendToCanvas = (item) => {
   currentTab.value = 'canvas';
   if (canvasRef.value) {
@@ -730,6 +734,46 @@ const handleSendToCanvas = (item) => {
     canvasRef.value.branchFromImage(item);
   }
   showToastMsg({ message: '已载入画布并开启参考衍生分支！', type: 'success' });
+};
+
+// 画廊新功能：点击“设为参考图”，不跳转画布，可多张点击连续设为参考
+const handleGallerySetAsRef = (item) => {
+  if (canvasRef.value) {
+    const res = canvasRef.value.addGalleryItemAsReference(item);
+    if (res.added) {
+      showToastMsg({ message: `已加入画布并设为 [Image ${res.index}] 参考图`, type: 'success' });
+    } else {
+      showToastMsg({ message: res.message || '已处理参考图', type: 'info' });
+    }
+  }
+};
+
+// 画廊新功能：点击“加入到画布”，不跳转画布，仅加入画布独立图片卡片
+const handleGalleryAddToCanvas = (item) => {
+  if (canvasRef.value) {
+    const res = canvasRef.value.addGalleryItemToCanvas(item);
+    if (res.alreadyExists) {
+      showToastMsg({ message: '该图片已在画布中存在', type: 'info' });
+    } else {
+      showToastMsg({ message: '已成功添加至画布', type: 'success' });
+    }
+  }
+};
+
+// 画廊多选批量设为参考图
+const handleGalleryBatchSetAsRef = (items) => {
+  if (canvasRef.value) {
+    const count = canvasRef.value.batchAddGalleryItemsAsReference(items);
+    showToastMsg({ message: `已成功将 ${count} 张图片设为参考图！`, type: 'success' });
+  }
+};
+
+// 画廊多选批量加入画布
+const handleGalleryBatchAddToCanvas = (items) => {
+  if (canvasRef.value) {
+    const count = canvasRef.value.batchAddGalleryItemsToCanvas(items);
+    showToastMsg({ message: `已成功将 ${count} 张图片添加至画布！`, type: 'success' });
+  }
 };
 
 // 删除单张历史图片

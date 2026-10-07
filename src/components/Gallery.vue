@@ -20,6 +20,17 @@
           <button v-if="searchKeyword" class="clear-search-btn" @click="searchKeyword = ''">×</button>
         </div>
 
+        <!-- 多选模式切换按钮 -->
+        <button 
+          class="batch-mode-toggle-btn" 
+          :class="{ active: isBatchMode }" 
+          @click="toggleBatchMode"
+          :title="isBatchMode ? '退出多选模式' : '开启多选模式 (可批量作为参考图或加入画布)'"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+          <span>{{ isBatchMode ? '退出多选' : '多选管理' }}</span>
+        </button>
+
         <!-- 清空所有记录按钮 -->
         <button class="clear-all-btn" @click="handleClearAll" title="清空全部历史记录">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -46,33 +57,58 @@
         </div>
       </div>
 
-      <!-- 历史图片列表 (双击图片阅览，删除小字提示词，悬停只显示按钮，点击按钮引出提示词框) -->
+      <!-- 历史图片列表 (双击图片阅览，悬停快捷操作栏) -->
       <div 
         v-for="item in filteredItems" 
         :key="item.id" 
         class="image-card glass-panel"
+        :class="{ 'batch-selected': isSelected(item.id) }"
+        @click="isBatchMode ? toggleSelectItem(item.id) : null"
       >
         <div 
           class="media-container" 
-          @dblclick.stop="preview(item)" 
-          title="双击图片全屏阅览大图"
+          @dblclick.stop="!isBatchMode ? preview(item) : null" 
+          :title="isBatchMode ? '点击选中/取消' : '双击图片全屏阅览大图'"
         >
-          <img :src="item.url" :alt="item.prompt" class="gallery-img" loading="lazy" />
+          <img :src="item.url" :alt="item.prompt" class="gallery-img" loading="lazy" decoding="async" />
           
-          <!-- 悬浮操作面板 (无文字遮罩与深色蒙版，仅底部优雅浮现快捷操作栏) -->
-          <div class="card-overlay" @click.stop>
+          <!-- 多选模式下的复选框 -->
+          <div 
+            v-if="isBatchMode" 
+            class="batch-card-checkbox" 
+            :class="{ checked: isSelected(item.id) }"
+            @click.stop="toggleSelectItem(item.id)"
+          >
+            <svg v-if="isSelected(item.id)" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+
+          <!-- 悬浮操作面板 (仅在非多选模式下浮现) -->
+          <div v-if="!isBatchMode" class="card-overlay" @click.stop>
             <div class="overlay-header">
               <span class="size-badge">{{ item.width }}x{{ item.height }}</span>
               <span class="model-badge">{{ item.model || 'GPT-Image' }}</span>
             </div>
 
             <div class="overlay-footer">
-              <!-- 发送至灵感画布衍生 -->
-              <button class="action-btn highlight-btn" @click.stop="$emit('send-to-canvas', item)" title="在灵感画布中以此图参考衍生">
+              <!-- 1. 作为参考图衍生：点击不跳转画布，可连续多选点击，等效于将选择的图作为参考图 -->
+              <button 
+                class="action-btn highlight-btn" 
+                @click.stop="handleSetAsRef(item)" 
+                title="作为参考图 (不离开画廊，可多选)"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
               </button>
 
-              <!-- 查看提示词 (引出气泡文本框) -->
+              <!-- 2. 加入到画布：放在参考衍生的右边，仅加入画布作为独立图片，不直接作为参考图 -->
+              <button 
+                class="action-btn add-canvas-btn" 
+                @click.stop="handleAddToCanvas(item)" 
+                title="加入画布 (作为独立卡片，不作为参考图)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="16"></line></svg>
+              </button>
+
+              <!-- 3. 查看提示词 (引出气泡文本框) -->
               <button 
                 class="action-btn" 
                 :class="{ active: activePromptItemId === item.id }"
@@ -82,12 +118,12 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
               </button>
 
-              <!-- 下载图片 -->
+              <!-- 4. 下载图片 -->
               <button class="action-btn" @click.stop="downloadImage(item)" title="保存高清大图至本地">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               </button>
 
-              <!-- 删除图片 -->
+              <!-- 5. 删除图片 -->
               <button class="action-btn delete-btn" @click.stop="deleteItem(item.id)" title="删除此记录">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
               </button>
@@ -145,6 +181,43 @@
         <span>🎨 前往灵感画布开始创作</span>
       </button>
     </div>
+
+    <!-- 底部悬浮批量管理栏 (多选模式下激活) -->
+    <Transition name="slide-up">
+      <div v-if="isBatchMode" class="batch-floating-bar glass-panel" @click.stop>
+        <div class="batch-bar-left">
+          <span class="batch-count-tag">已选 {{ selectedIds.length }} 张</span>
+          <button class="batch-text-btn" @click="selectAllItems">
+            {{ selectedIds.length === filteredItems.length && filteredItems.length > 0 ? '取消全选' : '全选本页' }}
+          </button>
+        </div>
+        <div class="batch-bar-right">
+          <button 
+            class="batch-action-btn primary-btn" 
+            :disabled="selectedIds.length === 0"
+            @click="handleBatchSetAsRef"
+            title="将选中的图片批量设为参考图"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
+            <span>作为参考图 ({{ selectedIds.length }})</span>
+          </button>
+
+          <button 
+            class="batch-action-btn secondary-btn" 
+            :disabled="selectedIds.length === 0"
+            @click="handleBatchAddToCanvas"
+            title="将选中的图片批量加入画布 (不作为参考图)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="16"></line></svg>
+            <span>加入画布 ({{ selectedIds.length }})</span>
+          </button>
+
+          <button class="batch-close-btn" @click="isBatchMode = false" title="退出多选">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -156,11 +229,83 @@ const props = defineProps({
   isGenerating: Boolean
 });
 
-const emit = defineEmits(['preview', 'reuse-prompt', 'delete', 'show-toast', 'send-to-canvas', 'clear-all', 'goto-canvas']);
+const emit = defineEmits([
+  'preview', 
+  'reuse-prompt', 
+  'delete', 
+  'show-toast', 
+  'send-to-canvas', 
+  'set-as-ref', 
+  'add-to-canvas', 
+  'batch-set-as-ref', 
+  'batch-add-to-canvas', 
+  'clear-all', 
+  'goto-canvas'
+]);
 
 const searchKeyword = ref('');
 const activePromptItemId = ref(null);
 const copiedItemId = ref(null);
+
+// 批量管理多选状态
+const isBatchMode = ref(false);
+const selectedIds = ref([]);
+
+const toggleBatchMode = () => {
+  isBatchMode.value = !isBatchMode.value;
+  if (!isBatchMode.value) {
+    selectedIds.value = [];
+  }
+};
+
+const isSelected = (id) => selectedIds.value.includes(id);
+
+const toggleSelectItem = (id) => {
+  const idx = selectedIds.value.indexOf(id);
+  if (idx !== -1) {
+    selectedIds.value.splice(idx, 1);
+  } else {
+    selectedIds.value.push(id);
+  }
+};
+
+const selectAllItems = () => {
+  if (selectedIds.value.length === filteredItems.value.length) {
+    selectedIds.value = [];
+  } else {
+    selectedIds.value = filteredItems.value.map(item => item.id);
+  }
+};
+
+// 单张设为参考图：不跳转画布，可多张点击连续设为参考
+const handleSetAsRef = (item) => {
+  emit('set-as-ref', item);
+};
+
+// 单张加入画布：放在参考衍生右侧，仅加入画布不作为参考图
+const handleAddToCanvas = (item) => {
+  emit('add-to-canvas', item);
+};
+
+// 批量设为参考图
+const handleBatchSetAsRef = () => {
+  const selectedItems = (props.items || []).filter(item => selectedIds.value.includes(item.id));
+  if (selectedItems.length > 0) {
+    emit('batch-set-as-ref', selectedItems);
+    isBatchMode.value = false;
+    selectedIds.value = [];
+  }
+};
+
+// 批量加入画布
+const handleBatchAddToCanvas = () => {
+  const selectedItems = (props.items || []).filter(item => selectedIds.value.includes(item.id));
+  if (selectedItems.length > 0) {
+    emit('batch-add-to-canvas', selectedItems);
+    isBatchMode.value = false;
+    selectedIds.value = [];
+  }
+};
 
 const togglePromptPopover = (itemId) => {
   activePromptItemId.value = activePromptItemId.value === itemId ? null : itemId;
@@ -748,5 +893,207 @@ const formatTime = (timestamp) => {
   0% { stroke-dasharray: 1, 150; stroke-dashoffset: 0; }
   50% { stroke-dasharray: 90, 150; stroke-dashoffset: -35; }
   100% { stroke-dasharray: 90, 150; stroke-dashoffset: -124; }
+}
+
+/* 批量多选模式按钮 */
+.batch-mode-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  color: var(--accent-indigo);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.batch-mode-toggle-btn:hover,
+.batch-mode-toggle-btn.active {
+  background: var(--primary-gradient);
+  color: #ffffff;
+  border-color: transparent !important;
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+/* 卡片选中高亮与复选框 */
+.image-card.batch-selected {
+  outline: 2.5px solid var(--primary-color) !important;
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.4), var(--shadow-lg) !important;
+  transform: translateY(-2px);
+}
+
+.batch-card-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: var(--transition-fast);
+}
+
+.batch-card-checkbox.checked {
+  background: var(--primary-gradient);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.action-btn.add-canvas-btn {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.action-btn.add-canvas-btn:hover {
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+/* 底部悬浮批量操作栏 */
+.batch-floating-bar {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 24px;
+  border-radius: 16px;
+  background: rgba(18, 22, 34, 0.94);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 20px rgba(99, 102, 241, 0.25);
+  z-index: 100;
+  min-width: 480px;
+}
+
+:root[data-theme="light"] .batch-floating-bar {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(99, 102, 241, 0.2) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.batch-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-count-tag {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.batch-text-btn {
+  background: none;
+  border: none;
+  color: var(--accent-indigo);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.batch-text-btn:hover {
+  text-decoration: underline;
+}
+
+.batch-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: var(--transition-smooth);
+}
+
+.batch-action-btn.primary-btn {
+  background: var(--primary-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+.batch-action-btn.primary-btn:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 18px var(--accent-glow);
+}
+
+.batch-action-btn.secondary-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #10b981;
+}
+
+.batch-action-btn.secondary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  border-color: transparent;
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+}
+
+.batch-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.batch-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.batch-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+/* 浮动栏滑动动画 */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 20px);
 }
 </style>

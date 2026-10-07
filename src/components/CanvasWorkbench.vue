@@ -44,29 +44,40 @@
 
         <!-- 动态渲染节点之间的关联连线 -->
         <g v-for="link in activeLinks" :key="link.id">
+          <!-- 1. 底层暗色衬托描边：用于线条立体分层与交叉时清晰辨识，区分归属 -->
+          <path 
+            :d="link.path" 
+            class="connection-curve-underlay"
+            fill="none" 
+            :stroke-width="(link.strokeWidth || 2.4) + 5"
+          />
+          <!-- 2. 顶层发光渐变主曲线 -->
           <path 
             :d="link.path" 
             :class="[
               'connection-curve', 
               link.type, 
-              { 'faded-heritage': link.type === 'heritage' && isAnyRefActive && hoveredPipelineId !== link.pipelineId }
+              { 
+                'faded-heritage': link.type === 'heritage' && isAnyRefActive && hoveredPipelineId !== link.pipelineId,
+                'highlighted-link': hoveredNodeId && (link.id.includes(hoveredNodeId))
+              }
             ]"
             :stroke="link.stroke" 
             fill="none" 
-            :stroke-width="link.strokeWidth || 2"
+            :stroke-width="link.strokeWidth || 2.4"
             :filter="link.filter"
           />
-          <!-- 起点与终点锚点 -->
+          <!-- 起点与终点锚点 (动态沿边缘平滑移动的物理节点) -->
           <circle 
             :cx="link.fromX" 
             :cy="link.fromY" 
-            :r="link.type === 'recent-output' ? 4.5 : 3.5" 
+            :r="link.type === 'recent-output' ? 5 : 4" 
             :class="['connection-point', 'from', link.type, { 'faded-point': link.type === 'heritage' && isAnyRefActive && hoveredPipelineId !== link.pipelineId }]" 
           />
           <circle 
             :cx="link.toX" 
             :cy="link.toY" 
-            :r="link.type === 'recent-output' ? 4.5 : 3.5" 
+            :r="link.type === 'recent-output' ? 5 : 4" 
             :class="['connection-point', 'to', link.type, { 'faded-point': link.type === 'heritage' && isAnyRefActive && hoveredPipelineId !== link.pipelineId }]" 
           />
         </g>
@@ -74,9 +85,11 @@
 
       <!-- 画布上的所有卡片节点 -->
       <div class="nodes-container">
-        <!-- 1. 生图主控制节点 (尺寸增大20%，模型与比例统一在侧栏进行) -->
+        <!-- 1. 生图主控制节点 (尺寸随内容真实变化，连线动态贴合当前真实边缘) -->
         <div 
+          ref="configNodeEl"
           class="canvas-node config-node glass-panel"
+          :class="{ 'is-dragging': draggingNode === configNode }"
           :style="{ transform: `translate3d(${configNode.x}px, ${configNode.y}px, 0)` }"
           @mousedown.stop="startNodeDrag($event, configNode)"
         >
@@ -210,9 +223,16 @@
           v-for="node in imageNodes" 
           :key="node.id"
           class="canvas-node image-node glass-panel"
-          :class="{ 'selected': selectedNodeId === node.id, 'recent-node': node.isRecentGenerated }"
+          :class="{ 
+            'selected': selectedNodeId === node.id, 
+            'recent-node': node.isRecentGenerated,
+            'is-dragging': draggingNode === node,
+            'is-referenced': isNodeInRefImages(node.id)
+          }"
           :style="{ transform: `translate3d(${node.x}px, ${node.y}px, 0)`, width: `${node.width || 280}px` }"
           @mousedown.stop="startNodeDrag($event, node)"
+          @mouseenter="hoveredNodeId = node.id"
+          @mouseleave="hoveredNodeId = null"
         >
           <!-- 最新衍生成果横幅与独立按钮 -->
           <div v-if="node.isRecentGenerated" class="recent-output-banner" @mousedown.stop>
@@ -228,17 +248,9 @@
             </button>
           </div>
 
-          <!-- 卡片头部与批次徽标 (右上角展示图片画面宽高比规格) -->
+          <!-- 卡片头部 (右上角展示图片画面宽高比规格) -->
           <div class="img-node-header">
             <span class="img-node-tag">{{ node.model || 'GPT-Image' }}</span>
-            <span 
-              class="img-node-combo-badge" 
-              v-if="isNodeInRefImages(node.id)"
-              @click.stop="removeNodeFromRefImages(node.id)"
-              title="已作为参考图，点击移出"
-            >
-              ✓ Image {{ getRefIndex(node.id) }} ×
-            </span>
             <span class="img-node-ratio" title="图片宽高比规格 (如 1:1 正方形, 16:9 横屏, 9:16 竖屏)">{{ node.ratio || '1:1' }}</span>
           </div>
 
@@ -356,14 +368,6 @@
               </button>
             </div>
           </div>
-
-          <!-- 右侧连线锚点 (支持点击直接加入/移出参考) -->
-          <div 
-            class="node-handle handle-right" 
-            :class="{ 'connected': isNodeInRefImages(node.id) }"
-            @click.stop="toggleNodeInRefImages(node)"
-            :title="isNodeInRefImages(node.id) ? '已作为参考图连接（点击移出）' : '点击设为参考图连接到创作中心'"
-          ></div>
         </div>
 
         <!-- 3. 提示词血脉小方框节点 (Derivation Prompt Hubs) -->
@@ -517,6 +521,12 @@ const configNode = reactive({
   refImages: [], // 数组：[{ id, url, name, parentId }]
   parentImageId: null // 兼容字段
 });
+
+// 创作配置中心真实 DOM 引用与动态尺寸测量 (解决视频中创作窗口大小改变但节点连接判定原大小的缺陷)
+const configNodeEl = ref(null);
+const configRealWidth = ref(440);
+const configRealHeight = ref(360);
+const hoveredNodeId = ref(null);
 
 // 记录最新生成的节点ID与血统小方框列表
 const recentGeneratedNodeId = ref(null);
@@ -746,15 +756,94 @@ const gridBackgroundStyle = computed(() => {
   };
 });
 
-// 计算所有活跃的连接线（四周自由连接 + 高亮新图连线 + 琥珀血统小方框连线）
+// 核心算法：计算从中心 A 射向中心 B 的射线与矩形 A 真实边界的连续平滑交点及向外法向量
+// 彻底消灭原有的硬编码 4 方向离散阶跃，模拟真实物理张力，支持 360 度任意旋转与平滑沿边缘滑动
+const getRayRectangleIntersection = (rectA, rectB) => {
+  const cxA = rectA.x + rectA.w / 2;
+  const cyA = rectA.y + rectA.h / 2;
+  const cxB = rectB.x + rectB.w / 2;
+  const cyB = rectB.y + rectB.h / 2;
+
+  const dx = cxB - cxA;
+  const dy = cyB - cyA;
+
+  const hw = rectA.w / 2;
+  const hh = rectA.h / 2;
+
+  if (Math.abs(dx) < 1e-4 && Math.abs(dy) < 1e-4) {
+    return { x: cxA + hw, y: cyA, nx: 1, ny: 0 };
+  }
+
+  const sx = Math.abs(dx) > 1e-4 ? hw / Math.abs(dx) : Infinity;
+  const sy = Math.abs(dy) > 1e-4 ? hh / Math.abs(dy) : Infinity;
+  const t = Math.min(sx, sy);
+
+  const x = cxA + t * dx;
+  const y = cyA + t * dy;
+
+  let nx = 0;
+  let ny = 0;
+  const diff = Math.abs(sx - sy);
+  // 转角处平滑插值过渡，消除突变
+  if (diff < 0.08) {
+    nx = (dx > 0 ? 1 : -1) * 0.7071;
+    ny = (dy > 0 ? 1 : -1) * 0.7071;
+  } else if (sx < sy) {
+    nx = dx > 0 ? 1 : -1;
+    ny = 0;
+  } else {
+    nx = 0;
+    ny = dy > 0 ? 1 : -1;
+  }
+
+  return { 
+    x: Math.round(x * 10) / 10, 
+    y: Math.round(y * 10) / 10, 
+    nx, 
+    ny 
+  };
+};
+
+// 计算两个矩形之间的物理贝塞尔曲线与两端端点
+const calculateSmartConnector = (rectFrom, rectTo) => {
+  const ptFrom = getRayRectangleIntersection(rectFrom, rectTo);
+  const ptTo = getRayRectangleIntersection(rectTo, rectFrom);
+
+  const dist = Math.hypot(ptTo.x - ptFrom.x, ptTo.y - ptFrom.y);
+  // 物理张力根据两端距离动态自适应：拉近时更圆润，拉远时张力拉直
+  const tension = Math.min(150, Math.max(32, dist * 0.34));
+
+  const c1x = Math.round((ptFrom.x + ptFrom.nx * tension) * 10) / 10;
+  const c1y = Math.round((ptFrom.y + ptFrom.ny * tension) * 10) / 10;
+  const c2x = Math.round((ptTo.x + ptTo.nx * tension) * 10) / 10;
+  const c2y = Math.round((ptTo.y + ptTo.ny * tension) * 10) / 10;
+
+  const path = `M ${ptFrom.x} ${ptFrom.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ptTo.x} ${ptTo.y}`;
+
+  return {
+    fromX: ptFrom.x,
+    fromY: ptFrom.y,
+    toX: ptTo.x,
+    toY: ptTo.y,
+    path
+  };
+};
+
+// 计算所有活跃的连接线（四周无缝连续物理滑动 + 创作窗口实时实际大小对齐 + 交叉分层）
 const activeLinks = computed(() => {
   const links = [];
-  const W_c = 432;
-  const H_c = configNode.refImages && configNode.refImages.length > 0 ? 370 : 290;
-  const cx = configNode.x + W_c / 2;
-  const cy = configNode.y + H_c / 2;
+  // 实时采用创作中心的真实 DOM 测量高宽，绝不使用死值
+  const W_c = configRealWidth.value || 440;
+  const H_c = configRealHeight.value || 360;
 
-  // 1. 汇入创作配置中心的参考图连线（自由连入四周边缘，同侧均匀分布）
+  const rectConfig = {
+    x: configNode.x,
+    y: configNode.y,
+    w: W_c,
+    h: H_c
+  };
+
+  // 1. 汇入创作配置中心的参考图连线
   if (configNode.refImages && configNode.refImages.length > 0) {
     const parentNodes = [];
     configNode.refImages.forEach(refItem => {
@@ -767,197 +856,117 @@ const activeLinks = computed(() => {
       }
     });
 
-    // 根据相对于创作中心的几何方位分组 (left, right, top, bottom)
-    const sideGroups = { left: [], right: [], top: [], bottom: [] };
-
     parentNodes.forEach(parent => {
       const cardW = parent.width || 280;
       const cardH = getNodeHeight(parent);
-      const px = parent.x + cardW / 2;
-      const py = parent.y + cardH / 2;
-      const dx = px - cx;
-      const dy = py - cy;
+      const rectCard = {
+        x: parent.x,
+        y: parent.y,
+        w: cardW,
+        h: cardH
+      };
 
-      const normX = dx / W_c;
-      const normY = dy / H_c;
+      // 实时计算平滑边界滑动连接
+      const conn = calculateSmartConnector(rectCard, rectConfig);
 
-      let side = 'left';
-      if (Math.abs(normX) >= Math.abs(normY)) {
-        side = dx < 0 ? 'left' : 'right';
-      } else {
-        side = dy < 0 ? 'top' : 'bottom';
-      }
-      sideGroups[side].push({ parent, cardW, cardH, px, py });
+      links.push({
+        id: `ref-link-${parent.id}`,
+        type: 'reference',
+        stroke: 'url(#linkGradient)',
+        strokeWidth: 2.2,
+        fromX: conn.fromX,
+        fromY: conn.fromY,
+        toX: conn.toX,
+        toY: conn.toY,
+        path: conn.path
+      });
     });
-
-    // 左侧组
-    if (sideGroups.left.length > 0) {
-      sideGroups.left.sort((a, b) => a.parent.y - b.parent.y);
-      const N = sideGroups.left.length;
-      sideGroups.left.forEach((item, idx) => {
-        const fromX = item.parent.x + item.cardW;
-        const fromY = item.parent.y + Math.round(item.cardH / 2);
-        const toX = configNode.x;
-        const toY = configNode.y + Math.round((H_c / (N + 1)) * (idx + 1));
-        const dx = Math.min(80, Math.max(35, Math.abs(toX - fromX) * 0.4));
-        links.push({
-          id: `ref-left-${item.parent.id}`,
-          type: 'reference',
-          stroke: 'url(#linkGradient)',
-          strokeWidth: 2,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          path: `M ${fromX} ${fromY} C ${fromX + dx} ${fromY}, ${toX - dx} ${toY}, ${toX} ${toY}`
-        });
-      });
-    }
-
-    // 右侧组
-    if (sideGroups.right.length > 0) {
-      sideGroups.right.sort((a, b) => a.parent.y - b.parent.y);
-      const N = sideGroups.right.length;
-      sideGroups.right.forEach((item, idx) => {
-        const fromX = item.parent.x;
-        const fromY = item.parent.y + Math.round(item.cardH / 2);
-        const toX = configNode.x + W_c;
-        const toY = configNode.y + Math.round((H_c / (N + 1)) * (idx + 1));
-        const dx = Math.min(80, Math.max(35, Math.abs(fromX - toX) * 0.4));
-        links.push({
-          id: `ref-right-${item.parent.id}`,
-          type: 'reference',
-          stroke: 'url(#linkGradient)',
-          strokeWidth: 2,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          path: `M ${fromX} ${fromY} C ${fromX - dx} ${fromY}, ${toX + dx} ${toY}, ${toX} ${toY}`
-        });
-      });
-    }
-
-    // 顶部组
-    if (sideGroups.top.length > 0) {
-      sideGroups.top.sort((a, b) => a.parent.x - b.parent.x);
-      const N = sideGroups.top.length;
-      sideGroups.top.forEach((item, idx) => {
-        const fromX = item.parent.x + Math.round(item.cardW / 2);
-        const fromY = item.parent.y + item.cardH;
-        const toX = configNode.x + Math.round((W_c / (N + 1)) * (idx + 1));
-        const toY = configNode.y;
-        const dy = Math.min(80, Math.max(35, Math.abs(toY - fromY) * 0.4));
-        links.push({
-          id: `ref-top-${item.parent.id}`,
-          type: 'reference',
-          stroke: 'url(#linkGradient)',
-          strokeWidth: 2,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          path: `M ${fromX} ${fromY} C ${fromX} ${fromY + dy}, ${toX} ${toY - dy}, ${toX} ${toY}`
-        });
-      });
-    }
-
-    // 底部组
-    if (sideGroups.bottom.length > 0) {
-      sideGroups.bottom.sort((a, b) => a.parent.x - b.parent.x);
-      const N = sideGroups.bottom.length;
-      sideGroups.bottom.forEach((item, idx) => {
-        const fromX = item.parent.x + Math.round(item.cardW / 2);
-        const fromY = item.parent.y;
-        const toX = configNode.x + Math.round((W_c / (N + 1)) * (idx + 1));
-        const toY = configNode.y + H_c;
-        const dy = Math.min(80, Math.max(35, Math.abs(fromY - toY) * 0.4));
-        links.push({
-          id: `ref-bottom-${item.parent.id}`,
-          type: 'reference',
-          stroke: 'url(#linkGradient)',
-          strokeWidth: 2,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          path: `M ${fromX} ${fromY} C ${fromX} ${fromY - dy}, ${toX} ${toY + dy}, ${toX} ${toY}`
-        });
-      });
-    }
   }
 
   // 2. 最新生成图的高亮输出连线 (创作配置中心 -> 新图)
   if (recentGeneratedNodeId.value) {
     const recentNode = imageNodes.value.find(n => n.id === recentGeneratedNodeId.value);
     if (recentNode && recentNode.isRecentGenerated) {
-      const cardH = getNodeHeight(recentNode);
-      const fromX = configNode.x + W_c;
-      const fromY = configNode.y + Math.round(H_c / 2);
-      const toX = recentNode.x;
-      const toY = recentNode.y + Math.round(cardH / 2);
-      const dx = Math.min(100, Math.max(40, Math.abs(toX - fromX) * 0.4));
+      const rectRecent = {
+        x: recentNode.x,
+        y: recentNode.y,
+        w: recentNode.width || 280,
+        h: getNodeHeight(recentNode)
+      };
+      const conn = calculateSmartConnector(rectConfig, rectRecent);
+
       links.push({
         id: `recent-output-${recentNode.id}`,
         type: 'recent-output',
         stroke: 'url(#recentOutputGradient)',
         strokeWidth: 2.8,
         filter: 'url(#glowRecent)',
-        fromX,
-        fromY,
-        toX,
-        toY,
-        path: `M ${fromX} ${fromY} C ${fromX + dx} ${fromY}, ${toX - dx} ${toY}, ${toX} ${toY}`
+        fromX: conn.fromX,
+        fromY: conn.fromY,
+        toX: conn.toX,
+        toY: conn.toY,
+        path: conn.path
       });
     }
   }
 
-  // 3. 提示词血统小方框连线 (参考图 -> 小方框 -> 生成图，专属琥珀流金色，与参考线不同)
+  // 3. 提示词血统小方框连线 (参考图 -> 小方框 -> 生成图)
   derivationPipelines.value.forEach(pipe => {
     const child = imageNodes.value.find(n => n.id === pipe.childId);
     if (!child) return;
+
+    const rectPipe = {
+      x: pipe.x,
+      y: pipe.y,
+      w: 42,
+      h: 42
+    };
 
     // 参考图 -> 小方框
     pipe.parentIds.forEach((pid, pIdx) => {
       const parent = imageNodes.value.find(n => n.id === pid);
       if (parent) {
-        const fromX = parent.x + (parent.width || 280);
-        const fromY = parent.y + Math.round(getNodeHeight(parent) / 2);
-        const toX = pipe.x;
-        const toY = pipe.y + 16;
-        const dx = Math.min(60, Math.max(25, Math.abs(toX - fromX) * 0.35));
+        const rectParent = {
+          x: parent.x,
+          y: parent.y,
+          w: parent.width || 280,
+          h: getNodeHeight(parent)
+        };
+        const conn = calculateSmartConnector(rectParent, rectPipe);
         links.push({
           id: `pipe-in-${pipe.id}-${pid}-${pIdx}`,
           type: 'heritage',
           pipelineId: pipe.id,
           stroke: 'url(#heritageGradient)',
           strokeWidth: 2,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          path: `M ${fromX} ${fromY} C ${fromX + dx} ${fromY}, ${toX - dx} ${toY}, ${toX} ${toY}`
+          fromX: conn.fromX,
+          fromY: conn.fromY,
+          toX: conn.toX,
+          toY: conn.toY,
+          path: conn.path
         });
       }
     });
 
     // 小方框 -> 生成图
-    const fromX = pipe.x + 36;
-    const fromY = pipe.y + 16;
-    const toX = child.x;
-    const toY = child.y + Math.round(getNodeHeight(child) / 2);
-    const dx = Math.min(60, Math.max(25, Math.abs(toX - fromX) * 0.35));
+    const rectChild = {
+      x: child.x,
+      y: child.y,
+      w: child.width || 280,
+      h: getNodeHeight(child)
+    };
+    const connOut = calculateSmartConnector(rectPipe, rectChild);
     links.push({
       id: `pipe-out-${pipe.id}-${child.id}`,
       type: 'heritage',
       pipelineId: pipe.id,
       stroke: 'url(#heritageGradient)',
       strokeWidth: 2,
-      fromX,
-      fromY,
-      toX,
-      toY,
-      path: `M ${fromX} ${fromY} C ${fromX + dx} ${fromY}, ${toX - dx} ${toY}, ${toX} ${toY}`
+      fromX: connOut.fromX,
+      fromY: connOut.fromY,
+      toX: connOut.toX,
+      toY: connOut.toY,
+      path: connOut.path
     });
   });
 
@@ -992,19 +1001,56 @@ const onViewportMouseDown = (e) => {
   }
 };
 
+// 性能调度器：利用 requestAnimationFrame 节流鼠标高频位移，保证 60/120fps 丝滑响应且不浪费 CPU
+let dragRafId = null;
+let pendingPanX = null;
+let pendingPanY = null;
+let pendingNode = null;
+let pendingNodeX = null;
+let pendingNodeY = null;
+
+const flushMouseDrag = () => {
+  dragRafId = null;
+  if (pendingPanX !== null && pendingPanY !== null) {
+    panX.value = pendingPanX;
+    panY.value = pendingPanY;
+    pendingPanX = null;
+    pendingPanY = null;
+  }
+  if (pendingNode && pendingNodeX !== null && pendingNodeY !== null) {
+    pendingNode.x = pendingNodeX;
+    pendingNode.y = pendingNodeY;
+    pendingNode = null;
+    pendingNodeX = null;
+    pendingNodeY = null;
+  }
+};
+
 const onMouseMove = (e) => {
   if (isPanning.value) {
-    panX.value = e.clientX - startPanX.value;
-    panY.value = e.clientY - startPanY.value;
+    pendingPanX = e.clientX - startPanX.value;
+    pendingPanY = e.clientY - startPanY.value;
+    if (!dragRafId) {
+      dragRafId = requestAnimationFrame(flushMouseDrag);
+    }
   } else if (draggingNode) {
     const dx = (e.clientX - dragStartX) / scale.value;
     const dy = (e.clientY - dragStartY) / scale.value;
-    draggingNode.x = Math.round(nodeOrigX + dx);
-    draggingNode.y = Math.round(nodeOrigY + dy);
+    pendingNode = draggingNode;
+    pendingNodeX = Math.round(nodeOrigX + dx);
+    pendingNodeY = Math.round(nodeOrigY + dy);
+    if (!dragRafId) {
+      dragRafId = requestAnimationFrame(flushMouseDrag);
+    }
   }
 };
 
 const onMouseUp = () => {
+  if (dragRafId) {
+    cancelAnimationFrame(dragRafId);
+    dragRafId = null;
+  }
+  flushMouseDrag();
   isPanning.value = false;
   draggingNode = null;
   window.removeEventListener('mousemove', onMouseMove);
@@ -1354,20 +1400,52 @@ const clearCanvasNodes = () => {
   emit('show-toast', { message: '画布已重置清空', type: 'info' });
 };
 
-// 自动排版对齐：专业级流向排版（参考图在左列、配置中心居中偏右、下游衍生图在最右侧，绝不交叉）
+// 自适应聚焦一组节点，确保其全部纳入当前屏幕视野中心 (不被遮挡)
+const fitNodesInView = (nodes) => {
+  if (!viewportRef.value || !nodes || nodes.length === 0) {
+    fitView();
+    return;
+  }
+  const vRect = viewportRef.value.getBoundingClientRect();
+  const vW = vRect.width;
+  const vH = vRect.height;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + (n.w || 280));
+    maxY = Math.max(maxY, n.y + (n.h || 330));
+  });
+
+  const pad = 90;
+  const totalW = Math.max(100, maxX - minX);
+  const totalH = Math.max(100, maxY - minY);
+
+  const targetScale = Math.min(0.95, Math.max(0.3, Math.min((vW - pad * 2) / totalW, (vH - pad * 2) / totalH)));
+  const boxCenterX = (minX + maxX) / 2;
+  const boxCenterY = (minY + maxY) / 2;
+
+  const targetPanX = Math.round(vW / 2 - boxCenterX * targetScale);
+  const targetPanY = Math.round(vH / 2 - boxCenterY * targetScale);
+
+  animateViewportSmooth(targetPanX, targetPanY, targetScale, 480);
+};
+
+// 自动排版对齐：四张图排成一列为最大限度，超过4张采用多列紧凑布局，原则是参与参考图尽可能在页面视野内，不被遮挡
 const autoOrganizeNodes = () => {
-  const baseX = 80;
-  const baseY = 100;
   const CARD_WIDTH = 280;
   const CARD_HEIGHT = 330;
-  const ROW_GAP = 32;
-  const COL_GAP = 110;
-  const CONFIG_WIDTH = 432;
-  const CONFIG_HEIGHT = 360;
+  const ROW_GAP = 28;
+  const COL_GAP = 90;
+  const MAX_PER_COL = 4; // 铁律规则：四张图排成一列已经是最大限度！
+
+  const configW = configRealWidth.value || 440;
+  const configH = configRealHeight.value || 360;
 
   if (imageNodes.value.length === 0) {
     animateNodesSmooth([
-      { node: configNode, startX: configNode.x, startY: configNode.y, targetX: baseX, targetY: baseY }
+      { node: configNode, startX: configNode.x, startY: configNode.y, targetX: 100, targetY: 100 }
     ], 450, () => fitView());
     emit('show-toast', { message: '创作卡片已就位', type: 'info' });
     return;
@@ -1378,7 +1456,7 @@ const autoOrganizeNodes = () => {
   const nodeMap = new Map();
   allNodes.forEach(n => nodeMap.set(n.id, n));
 
-  // 1. 优先提取当前配置中心正在引用的参考图节点列表 (按 Image 1, Image 2, Image 3... 的顺序)
+  // 1. 优先提取当前配置中心引用的所有参考图
   const refNodeIds = [];
   if (configNode.refImages && configNode.refImages.length > 0) {
     configNode.refImages.forEach(refItem => {
@@ -1391,46 +1469,58 @@ const autoOrganizeNodes = () => {
     refNodeIds.push(configNode.parentImageId);
   }
 
-  let configTargetX = baseX;
-  let configTargetY = baseY;
+  const totalRefs = refNodeIds.length;
+  let configTargetX = 400;
+  let configTargetY = 200;
 
-  if (refNodeIds.length > 0) {
-    // 2. 将参考图节点严格自上而下排布在最左列 (X = baseX)
-    let refY = baseY;
-    const refNodesCount = refNodeIds.length;
-    refNodeIds.forEach(id => {
-      targetsMap.set(id, { x: baseX, y: refY });
-      refY += CARD_HEIGHT + ROW_GAP;
-    });
+  if (totalRefs > 0) {
+    // 列数计算：每列最多 4 张
+    const numCols = Math.ceil(totalRefs / MAX_PER_COL);
+    // 均衡分配每列数量，使得各列垂直高度最小化，最大限度保留在视口内
+    const itemsPerCol = Math.ceil(totalRefs / numCols);
 
-    // 计算参考图列的整体垂直中心
-    const totalRefSpan = (refNodesCount * CARD_HEIGHT) + ((refNodesCount - 1) * ROW_GAP);
-    const refCenterY = baseY + totalRefSpan / 2;
-    configTargetX = baseX + CARD_WIDTH + COL_GAP;
-    // 让配置中心与参考图列的垂直中心线精准对齐 (与图一完全一致)
-    configTargetY = Math.max(baseY, Math.round(refCenterY - CONFIG_HEIGHT / 2));
+    const maxItemsInCol = Math.min(MAX_PER_COL, itemsPerCol);
+    const refColHeight = maxItemsInCol * CARD_HEIGHT + (maxItemsInCol - 1) * ROW_GAP;
+    
+    // 让创作中心在垂直方向居中对齐参考图区域
+    configTargetY = Math.max(80, Math.round((refColHeight - configH) / 2 + 80));
+    // 创作中心的 X 坐标：放在所有参考图列的右侧
+    const totalRefWidth = numCols * CARD_WIDTH + (numCols - 1) * COL_GAP;
+    configTargetX = 80 + totalRefWidth + COL_GAP;
+
+    // 排布参考图各列（紧挨创作中心的是第 0 列，再往左是第 1 列）
+    let currentRefIdx = 0;
+    for (let c = 0; c < numCols; c++) {
+      const colX = configTargetX - COL_GAP - (c + 1) * CARD_WIDTH - c * COL_GAP;
+      const countInThisCol = Math.min(itemsPerCol, totalRefs - currentRefIdx);
+      const thisColHeight = countInThisCol * CARD_HEIGHT + (countInThisCol - 1) * ROW_GAP;
+      let startY = 80 + Math.round((refColHeight - thisColHeight) / 2);
+
+      for (let r = 0; r < countInThisCol; r++) {
+        const id = refNodeIds[currentRefIdx++];
+        targetsMap.set(id, { x: colX, y: startY });
+        startY += CARD_HEIGHT + ROW_GAP;
+      }
+    }
   } else {
-    // 无参考图时，配置中心位于首位
-    configTargetX = baseX;
-    configTargetY = baseY;
+    configTargetX = 100;
+    configTargetY = 100;
   }
 
-  // 3. 收集所有未在参考图列中的剩余节点 (下游衍生图或未绑定图)
+  // 2. 收集非参考图（下游衍生图或未绑定图），排布在创作中心的右侧
   const remainingNodes = allNodes.filter(n => !refNodeIds.includes(n.id));
-
   if (remainingNodes.length > 0) {
-    // 排在创作配置中心右侧
-    const rightStartX = configTargetX + (refNodeIds.length > 0 ? CONFIG_WIDTH + COL_GAP : CARD_WIDTH + COL_GAP);
+    const rightStartX = configTargetX + configW + COL_GAP;
     remainingNodes.forEach((node, idx) => {
       const col = Math.floor(idx / 3);
       const row = idx % 3;
-      const x = rightStartX + col * (CARD_WIDTH + 80);
-      const y = baseY + row * (CARD_HEIGHT + ROW_GAP);
+      const x = rightStartX + col * (CARD_WIDTH + 60);
+      const y = 80 + row * (CARD_HEIGHT + ROW_GAP);
       targetsMap.set(node.id, { x, y });
     });
   }
 
-  // 4. 构建全部节点的平滑移动任务列表
+  // 3. 构建全部节点的平滑移动任务列表
   const moveList = [];
   moveList.push({
     node: configNode,
@@ -1453,16 +1543,25 @@ const autoOrganizeNodes = () => {
     }
   });
 
-  // 柔和启动 520ms 平滑多节点排版动画
+  // 柔和启动 520ms 平滑多节点排版动画，并在动画完成后自适应镜头包围盒
   animateNodesSmooth(moveList, 520, () => {
-    // 排版定型后，镜头温柔定焦至创作中心
-    fitView();
+    fitNodesInView(moveList.map(m => ({ 
+      x: m.targetX, 
+      y: m.targetY, 
+      w: m.node === configNode ? configW : CARD_WIDTH, 
+      h: m.node === configNode ? configH : CARD_HEIGHT 
+    })));
   });
 
-  emit('show-toast', { message: '已按工整参考拓扑对齐排布', type: 'info' });
+  emit('show-toast', { 
+    message: totalRefs > 4 
+      ? `已自适应为双列智能排布（单列4张上限生效），所有参考图均在视野内呈现` 
+      : '已按一列居中自动重排参考图', 
+    type: 'info' 
+  });
 };
 
-// 监听新的生成图片，推送到画布中呈现 (支持单父节点或多父节点融合，支持批量生成错开排布)
+// 监听新的生成图片，推送到画布中呈现
 const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) => {
   let parents = [];
   if (Array.isArray(parentIds)) {
@@ -1475,8 +1574,7 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) =>
     parents = [record.parentId];
   }
 
-  // 计算排布坐标：若有父级节点，则排在父级节点组的右侧居中；否则排在配置节点右侧
-  let targetX = configNode.x + 460;
+  let targetX = configNode.x + (configRealWidth.value || 440) + 70;
   let targetY = configNode.y;
 
   if (parents.length > 0) {
@@ -1489,7 +1587,6 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) =>
     }
   }
 
-  // 稍微向下错开避免完全重叠，并结合批量索引做美观梯级偏移
   const existingCount = imageNodes.value.filter(n => Math.abs(n.x - targetX) < 80).length;
   targetY += existingCount * 120 + (offsetIndex * 35);
   targetX += (offsetIndex * 25);
@@ -1518,18 +1615,19 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) =>
   recentGeneratedNodeId.value = newNode.id;
 };
 
-// 外部调用：从画廊添加图片到画布
+// 外部调用：兼容旧方法
 const loadExternalImageToCanvas = (item) => {
   let existing = imageNodes.value.find(n => n.id === item.id);
   if (!existing) {
+    const configW = configRealWidth.value || 440;
     existing = {
       id: item.id,
       url: item.url,
       prompt: item.prompt,
       model: item.model,
       width: 280,
-      x: 100,
-      y: 140,
+      x: configNode.x + configW + 70,
+      y: configNode.y + 40,
       parentId: null
     };
     imageNodes.value.push(existing);
@@ -1537,14 +1635,141 @@ const loadExternalImageToCanvas = (item) => {
   selectedNodeId.value = item.id;
 };
 
+// 外部调用新功能：画廊点击“设为参考图”（加入画布 + 设为参考图，放置在创作中心左侧空闲位置，绝不悬浮重叠）
+const addGalleryItemAsReference = (item) => {
+  if (!configNode.refImages) configNode.refImages = [];
+
+  const existingInRef = configNode.refImages.find(r => r.id === item.id || r.parentId === item.id);
+  if (existingInRef) {
+    // 如果已经在参考中，移出它
+    removeNodeFromRefImages(item.id);
+    return { added: false, message: '已从参考组合中移出' };
+  }
+
+  if (configNode.refImages.length >= 16) {
+    emit('show-toast', { message: '已达参考图上限 (单次最多 16 张)', type: 'error' });
+    return { added: false, message: '已达上限' };
+  }
+
+  // 确保在画布上有节点卡片
+  let node = imageNodes.value.find(n => n.id === item.id);
+  if (!node) {
+    const refCount = configNode.refImages.length;
+    const col = Math.floor(refCount / 4);
+    const row = refCount % 4;
+    const posX = configNode.x - 340 - col * 310;
+    const posY = configNode.y + row * 180 - 40;
+
+    node = {
+      id: item.id,
+      url: item.url,
+      prompt: item.prompt,
+      model: item.model,
+      width: 280,
+      x: posX,
+      y: posY,
+      parentId: null
+    };
+    imageNodes.value.push(node);
+  }
+
+  if (configNode.refImages.length === 0) {
+    configNode.prompt = '';
+    configNode.parentImageId = item.id;
+  }
+
+  configNode.refImages.push({
+    id: item.id,
+    url: item.url,
+    name: `Image ${configNode.refImages.length + 1}`,
+    parentId: item.id
+  });
+
+  selectedNodeId.value = item.id;
+  return { added: true, index: configNode.refImages.length };
+};
+
+// 外部调用新功能：画廊点击“加入到画布”（仅加入画布作为独立图片，不设为参考图，放置在创作中心右侧空闲位置）
+const addGalleryItemToCanvas = (item) => {
+  let node = imageNodes.value.find(n => n.id === item.id);
+  if (node) {
+    selectedNodeId.value = node.id;
+    return { alreadyExists: true };
+  }
+
+  const existingCount = imageNodes.value.length;
+  const col = Math.floor(existingCount / 3);
+  const row = existingCount % 3;
+  const configW = configRealWidth.value || 440;
+  const posX = configNode.x + configW + 70 + col * 310;
+  const posY = configNode.y + row * 190;
+
+  const newNode = {
+    id: item.id,
+    url: item.url,
+    prompt: item.prompt,
+    model: item.model,
+    width: 280,
+    x: posX,
+    y: posY,
+    parentId: null
+  };
+  imageNodes.value.push(newNode);
+  selectedNodeId.value = item.id;
+  return { alreadyExists: false };
+};
+
+// 批量从画廊设为参考图
+const batchAddGalleryItemsAsReference = (items) => {
+  let count = 0;
+  items.forEach(item => {
+    if (configNode.refImages.length < 16 && !configNode.refImages.some(r => r.id === item.id || r.parentId === item.id)) {
+      addGalleryItemAsReference(item);
+      count++;
+    }
+  });
+  return count;
+};
+
+// 批量从画廊加入画布
+const batchAddGalleryItemsToCanvas = (items) => {
+  let count = 0;
+  items.forEach(item => {
+    const res = addGalleryItemToCanvas(item);
+    if (!res.alreadyExists) count++;
+  });
+  return count;
+};
+
 defineExpose({
   addGeneratedImageToCanvas,
   loadExternalImageToCanvas,
+  addGalleryItemAsReference,
+  addGalleryItemToCanvas,
+  batchAddGalleryItemsAsReference,
+  batchAddGalleryItemsToCanvas,
   branchFromImage
 });
 
+let configResizeObserver = null;
+
 // 初始化时如果历史记录中有图片，自动加载最新的几张到画布供用户直接把玩
 onMounted(() => {
+  // 监听创作中心实际 DOM 尺寸变化，保证连线永远贴紧真实边缘
+  if (configNodeEl.value) {
+    configRealWidth.value = configNodeEl.value.offsetWidth || 440;
+    configRealHeight.value = configNodeEl.value.offsetHeight || 360;
+    configResizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (entry.target === configNodeEl.value) {
+          configRealWidth.value = configNodeEl.value.offsetWidth || 440;
+          configRealHeight.value = configNodeEl.value.offsetHeight || 360;
+        }
+      }
+    });
+    configResizeObserver.observe(configNodeEl.value);
+  }
+
   if (props.historyItems && props.historyItems.length > 0 && imageNodes.value.length === 0) {
     const initialItems = props.historyItems.slice(0, 4);
     initialItems.forEach((item, idx) => {
@@ -1554,11 +1779,22 @@ onMounted(() => {
         prompt: item.prompt,
         model: item.model,
         width: 280,
-        x: configNode.x + 420 + Math.floor(idx / 2) * 320,
+        x: configNode.x + 500 + Math.floor(idx / 2) * 320,
         y: configNode.y + (idx % 2) * 360,
         parentId: null
       });
     });
+  }
+});
+
+onUnmounted(() => {
+  if (configResizeObserver) {
+    configResizeObserver.disconnect();
+    configResizeObserver = null;
+  }
+  if (dragRafId) {
+    cancelAnimationFrame(dragRafId);
+    dragRafId = null;
   }
 });
 </script>
@@ -1621,10 +1857,29 @@ onMounted(() => {
   z-index: 1;
 }
 
+/* 底层暗色描边衬托路径：连线相交时自然呈现立体桥式遮挡，清晰区分两条线归属 */
+.connection-curve-underlay {
+  stroke: var(--bg-card, #0b0f19);
+  opacity: 0.95;
+  stroke-linecap: round;
+  transition: opacity 0.3s ease;
+}
+
+:root[data-theme="light"] .connection-curve-underlay {
+  stroke: rgba(255, 255, 255, 0.98);
+}
+
 .connection-curve {
   stroke-dasharray: 6 3;
+  stroke-linecap: round;
   animation: flowLine 25s linear infinite;
   transition: opacity 0.3s ease, stroke-width 0.2s ease;
+}
+
+.connection-curve.highlighted-link {
+  stroke-width: 3.6px !important;
+  filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.85)) !important;
+  opacity: 1 !important;
 }
 
 .connection-curve.recent-output {
@@ -1689,6 +1944,19 @@ onMounted(() => {
   backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 性能优化：拖拽时关闭 transition，开启 will-change 与硬件加速 */
+.canvas-node.is-dragging {
+  transition: none !important;
+  will-change: transform;
+  z-index: 100 !important;
+  cursor: grabbing !important;
+}
+
+.canvas-node.is-referenced {
+  border-color: rgba(99, 102, 241, 0.6) !important;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.25), var(--shadow-lg) !important;
 }
 
 .custom-model-box {
