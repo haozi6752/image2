@@ -235,17 +235,26 @@
 
       <!-- 6. 生成质量 (Quality) -->
       <div class="setting-group">
-        <label class="group-label">生成质量</label>
+        <div class="quality-header-row">
+          <label class="group-label">生成质量</label>
+          <span v-if="currentModel === 'gpt-image-2'" class="quality-model-hint">Image 2 最高支持 HIGH</span>
+        </div>
         <div class="quality-grid">
           <button 
             v-for="q in qualityList"
             :key="q.id"
             class="quality-btn-new" 
-            :class="{ active: quality === q.id, 'highlight-quality': q.isNew }"
+            :class="{ 
+              active: quality === q.id, 
+              'highlight-quality': q.isNew && !isQualityDisabled(q.id),
+              'disabled': isQualityDisabled(q.id)
+            }"
+            :disabled="isQualityDisabled(q.id)"
+            :title="isQualityDisabled(q.id) ? '当前模型不支持此画质（仅 GPT Image 2.5 系列可用）' : (q.badge ? `${q.name} (${q.badge})` : q.name)"
             @click="updateQuality(q.id)"
           >
             <span class="quality-text">{{ q.name }}</span>
-            <span v-if="q.badge" class="quality-badge">{{ q.badge }}</span>
+            <span v-if="q.badge" class="quality-badge" :class="{ 'disabled-badge': isQualityDisabled(q.id) }">{{ q.badge }}</span>
           </button>
         </div>
       </div>
@@ -268,23 +277,26 @@
 
       <!-- 透明背景 (PNG / WEBP 特权) -->
       <div class="setting-group" v-show="outputFormat === 'png' || outputFormat === 'webp'">
-        <div class="feature-toggle-row">
-          <div class="feature-toggle-info">
-            <span class="feature-title">透明背景 (Alpha Channel)</span>
-            <span class="feature-desc">去除画面多余背景，专供图标与 UI 设计素材提取</span>
+        <div 
+          class="glass-feature-card" 
+          :class="{ 'active': transparentBackground }"
+          @click="toggleTransparentBackground"
+        >
+          <div class="feature-card-content">
+            <div class="feature-card-header">
+              <span class="feature-card-icon">✨</span>
+              <span class="feature-card-title">透明背景 (Alpha)</span>
+            </div>
+            <span class="feature-card-desc">自动免抠透明底，提取图标与 UI 设计素材</span>
           </div>
-          <input 
-            type="checkbox" 
-            id="transparencyToggle" 
-            v-model="transparentBackground" 
-            @change="emitSettings"
-            class="toggle-checkbox"
-          />
-          <label for="transparencyToggle" class="toggle-label"></label>
+          <!-- 极简毛玻璃滑动开关 -->
+          <div class="glass-switch" :class="{ 'checked': transparentBackground }">
+            <div class="switch-handle"></div>
+          </div>
         </div>
       </div>
 
-      <!-- 图像压缩率 -->
+      <!-- 8. 图像压缩率 -->
       <div class="setting-group" v-show="outputFormat === 'jpeg' || outputFormat === 'webp'">
         <div class="size-header">
           <label class="group-label">图像压缩率 (Compression: {{ outputCompression }}%)</label>
@@ -301,6 +313,22 @@
           />
         </div>
         <span class="param-desc">数值越低体积越小，默认 80。</span>
+      </div>
+
+      <!-- 9. 单次生成张数 (Batch Count) -->
+      <div class="setting-group">
+        <label class="group-label">生成图片张数</label>
+        <div class="count-grid">
+          <button 
+            v-for="cnt in [1, 2, 3, 4]" 
+            :key="cnt"
+            class="count-btn" 
+            :class="{ active: imageCount === cnt }"
+            @click="updateImageCount(cnt)"
+          >
+            {{ cnt }} 张
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -370,6 +398,7 @@ const quality = ref('high');
 const outputFormat = ref('png');
 const outputCompression = ref(80);
 const transparentBackground = ref(false);
+const imageCount = ref(1);
 
 // 全新：个性指令集 (Prompt Skills) - 类似于 Skill，按设定好的指令操作，支持独立多项开关
 const promptSkills = ref([
@@ -515,13 +544,32 @@ const getRatioStyle = (ratioStr) => {
   }
 };
 
+// 判断指定画质等级在当前模型下是否不可用 (xhigh 与 max 仅限 2.5 系列模型)
+const isQualityDisabled = (qId) => {
+  if (qId === 'xhigh' || qId === 'max') {
+    if (currentModel.value === 'gpt-image-2') return true;
+    if (currentModel.value === 'custom') {
+      const customName = (customModelId.value || '').toLowerCase();
+      return !customName.includes('2.5');
+    }
+    return false;
+  }
+  return false;
+};
+
 const selectModel = (modelId) => {
   currentModel.value = modelId;
+  if (isQualityDisabled(quality.value)) {
+    quality.value = 'high';
+  }
   saveLocal();
   emitSettings();
 };
 
 const onCustomModelInput = () => {
+  if (isQualityDisabled(quality.value)) {
+    quality.value = 'high';
+  }
   saveLocal();
   emitSettings();
 };
@@ -561,6 +609,7 @@ const onSizeInput = (type) => {
 };
 
 const updateQuality = (q) => {
+  if (isQualityDisabled(q)) return;
   quality.value = q;
   saveLocal();
   emitSettings();
@@ -568,6 +617,18 @@ const updateQuality = (q) => {
 
 const updateOutputFormat = (f) => {
   outputFormat.value = f;
+  saveLocal();
+  emitSettings();
+};
+
+const toggleTransparentBackground = () => {
+  transparentBackground.value = !transparentBackground.value;
+  saveLocal();
+  emitSettings();
+};
+
+const updateImageCount = (cnt) => {
+  imageCount.value = cnt;
   saveLocal();
   emitSettings();
 };
@@ -591,6 +652,8 @@ const emitSettings = () => {
     outputFormat: outputFormat.value,
     outputCompression: outputCompression.value,
     transparentBackground: transparentBackground.value,
+    imageCount: imageCount.value,
+    n: imageCount.value,
     skillsPrompt: combinedSkillsPrompt.value
   });
 };
@@ -606,7 +669,8 @@ const saveLocal = () => {
     quality: quality.value,
     outputFormat: outputFormat.value,
     outputCompression: outputCompression.value,
-    transparentBackground: transparentBackground.value
+    transparentBackground: transparentBackground.value,
+    imageCount: imageCount.value
   };
   localStorage.setItem('sidebar_gen_settings_v3', JSON.stringify(settings));
 };
@@ -638,7 +702,11 @@ onMounted(() => {
       if (parsed.outputFormat) outputFormat.value = parsed.outputFormat;
       if (parsed.outputCompression !== undefined) outputCompression.value = parsed.outputCompression;
       if (parsed.transparentBackground !== undefined) transparentBackground.value = parsed.transparentBackground;
+      if (parsed.imageCount) imageCount.value = parsed.imageCount;
     } catch (e) {}
+  }
+  if (isQualityDisabled(quality.value)) {
+    quality.value = 'high';
   }
   emitSettings();
 });
@@ -1378,6 +1446,23 @@ onMounted(() => {
 }
 
 /* 质量网格 (无框沉浸式，纯色饱满激活) */
+.quality-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.quality-header-row .group-label {
+  margin-bottom: 0;
+}
+
+.quality-model-hint {
+  font-size: 0.68rem;
+  color: var(--text-tertiary, #888);
+  font-weight: 500;
+}
+
 .quality-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1436,6 +1521,22 @@ onMounted(() => {
   box-shadow: 0 1px 4px rgba(244, 63, 94, 0.4);
 }
 
+.quality-btn-new.disabled,
+.quality-btn-new:disabled {
+  opacity: 0.28 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  filter: grayscale(1);
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.quality-badge.disabled-badge {
+  background: rgba(120, 120, 120, 0.45) !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
 /* 输出格式 (无框纯色激活) */
 .format-grid {
   display: grid;
@@ -1476,39 +1577,154 @@ onMounted(() => {
   box-shadow: 0 3px 12px var(--accent-glow) !important;
 }
 
-/* 特性开关 */
-.feature-toggle-row {
+/* 现代极简无框毛玻璃特性卡片与开关 (彻底消除边框线) */
+.glass-feature-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: var(--transition-smooth);
 }
 
-.feature-toggle-info {
+:root[data-theme="light"] .glass-feature-card {
+  background: rgba(0, 0, 0, 0.035) !important;
+  border: none !important;
+}
+
+.glass-feature-card:hover {
+  background: rgba(255, 255, 255, 0.075) !important;
+  border: none !important;
+}
+
+:root[data-theme="light"] .glass-feature-card:hover {
+  background: rgba(0, 0, 0, 0.065) !important;
+  border: none !important;
+}
+
+.glass-feature-card.active {
+  background: rgba(139, 92, 246, 0.14) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 生成张数按钮组 (无边框轻量悬浮风格) */
+.count-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.count-btn {
+  padding: 9px 4px;
+  background: rgba(255, 255, 255, 0.035);
+  border: none !important;
+  outline: none !important;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+:root[data-theme="light"] .count-btn {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.count-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] .count-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.count-btn.active {
+  background: var(--primary-gradient) !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 12px var(--accent-glow) !important;
+}
+
+.feature-card-content {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
-.feature-title {
+.feature-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feature-card-icon {
+  font-size: 0.82rem;
+}
+
+.feature-card-title {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.feature-desc {
-  font-size: 0.68rem;
-  color: var(--text-muted);
+.feature-badge {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--primary-gradient);
+  color: #fff;
 }
 
-.toggle-checkbox {
-  width: 17px;
-  height: 17px;
-  accent-color: var(--primary-color);
-  cursor: pointer;
+.feature-card-desc {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* 优雅平滑 Switch 开关 */
+.glass-switch {
+  width: 36px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  position: relative;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+:root[data-theme="light"] .glass-switch {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.glass-switch.checked {
+  background: var(--primary-gradient);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.switch-handle {
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.glass-switch.checked .switch-handle {
+  transform: translateX(16px);
 }
 
 .param-desc {

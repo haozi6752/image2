@@ -164,7 +164,7 @@
               </span>
               <span class="spec-sep">·</span>
               <span class="spec-item spec-quality" title="当前画质等级">
-                {{ currentSettings.level === 'ultra' ? '4K 超清' : currentSettings.level === 'hd' ? '2K 进阶' : '1K 基准' }}
+                {{ (currentSettings.level === '4k' || currentSettings.level === 'ultra') ? '4K 超清' : (currentSettings.level === '2k' || currentSettings.level === 'hd') ? '2K 进阶' : '1K 基准' }}
               </span>
             </div>
 
@@ -1462,8 +1462,8 @@ const autoOrganizeNodes = () => {
   emit('show-toast', { message: '已按工整参考拓扑对齐排布', type: 'info' });
 };
 
-// 监听新的生成图片，推送到画布中呈现 (支持单父节点或多父节点融合)
-const addGeneratedImageToCanvas = (record, parentIds = null) => {
+// 监听新的生成图片，推送到画布中呈现 (支持单父节点或多父节点融合，支持批量生成错开排布)
+const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) => {
   let parents = [];
   if (Array.isArray(parentIds)) {
     parents = parentIds;
@@ -1489,9 +1489,10 @@ const addGeneratedImageToCanvas = (record, parentIds = null) => {
     }
   }
 
-  // 稍微向下错开避免完全重叠
+  // 稍微向下错开避免完全重叠，并结合批量索引做美观梯级偏移
   const existingCount = imageNodes.value.filter(n => Math.abs(n.x - targetX) < 80).length;
-  targetY += existingCount * 120;
+  targetY += existingCount * 120 + (offsetIndex * 35);
+  targetX += (offsetIndex * 25);
 
   const newNode = {
     id: record.id,
@@ -2361,24 +2362,30 @@ onMounted(() => {
   color: #ffffff;
 }
 
-/* 提示词气泡文本框 */
+/* 提示词气泡文本框 (极致纯平毛玻璃，彻底去除实线边框与生硬棱角) */
 .node-prompt-callout {
   position: absolute;
   bottom: calc(100% + 14px);
   left: 50%;
   transform: translateX(-50%);
-  width: 300px;
-  background: var(--bg-surface-elevated);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--border-focus);
-  box-shadow: var(--shadow-lg);
-  border-radius: var(--radius-md);
+  width: 310px;
+  background: rgba(18, 20, 30, 0.94);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: none !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
   padding: 14px;
   z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: popoverFadeIn 0.18s ease-out;
+  animation: popoverFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] .node-prompt-callout {
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.14), 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 @keyframes popoverFadeIn {
@@ -2387,32 +2394,24 @@ onMounted(() => {
 }
 
 .callout-arrow {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 12px;
-  height: 12px;
-  background: var(--bg-surface-elevated);
-  border-right: 1px solid var(--border-focus);
-  border-bottom: 1px solid var(--border-focus);
+  display: none !important;
 }
 
 .callout-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 6px;
+  border-bottom: none !important;
+  padding-bottom: 2px;
 }
 
 .callout-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  color: var(--accent-indigo);
+  color: var(--primary-color);
 }
 
 .callout-close-btn {
@@ -2432,6 +2431,9 @@ onMounted(() => {
 .callout-body {
   max-height: 130px;
   overflow-y: auto;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 9px 11px;
 }
 
 .callout-text {
@@ -2447,7 +2449,7 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   padding-top: 4px;
-  border-top: 1px solid var(--border-color);
+  border-top: none !important;
 }
 
 .callout-action-btn {
@@ -2456,32 +2458,37 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   font-size: 0.74rem;
   font-weight: 600;
-  border-radius: var(--radius-xs);
+  border-radius: 8px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: none !important;
   transition: var(--transition-smooth);
 }
 
 .copy-action-btn {
-  background: var(--accent-indigo-bg);
-  color: var(--accent-indigo);
+  background: var(--primary-gradient) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px var(--accent-glow);
 }
 
 .copy-action-btn:hover {
-  background: var(--primary-color);
-  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px var(--accent-glow);
 }
 
 .fill-action-btn {
-  background: var(--bg-subtle);
+  background: rgba(255, 255, 255, 0.06) !important;
   color: var(--text-secondary);
 }
 
+:root[data-theme="light"] .fill-action-btn {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+
 .fill-action-btn:hover {
-  background: var(--bg-subtle-hover);
+  background: rgba(255, 255, 255, 0.12) !important;
   color: var(--text-primary);
 }
 

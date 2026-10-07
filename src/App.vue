@@ -467,10 +467,16 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
 
   const chosenModel = model || genSettings.value.model || currentConfig.model || 'gpt-image-2.5-flare';
   const chosenSize = size || `${genSettings.value.width}x${genSettings.value.height}`;
+  const countParam = Number(genSettings.value.imageCount) > 0 ? Number(genSettings.value.imageCount) : 1;
+
+  // 决定 background 参数 (针对透明背景：当选择 PNG 或 WEBP 时传递 transparent)
+  const bgParam = (genSettings.value.transparentBackground && (genSettings.value.outputFormat === 'png' || genSettings.value.outputFormat === 'webp'))
+    ? 'transparent'
+    : undefined;
 
   let response;
   if (currentConfig.useProxy) {
-    // 经由反代 (透传多图数组 imagesB64)
+    // 经由反代 (透传多图数组 imagesB64 与完整生图特性参数，包含 n)
     response = await fetch('/api/proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -479,10 +485,12 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
         apiKey: currentConfig.apiKey,
         model: chosenModel,
         prompt: prompt,
+        n: countParam,
         size: chosenSize,
         quality: genSettings.value.quality,
+        background: bgParam,
         output_format: genSettings.value.outputFormat,
-        output_compression: genSettings.value.outputCompression,
+        output_compression: (genSettings.value.outputFormat === 'jpeg' || genSettings.value.outputFormat === 'webp') ? genSettings.value.outputCompression : undefined,
         imageB64: imagesList[0] || undefined,
         imagesB64: imagesList.length > 0 ? imagesList : undefined
       })
@@ -502,9 +510,14 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
 
       formData.append('prompt', prompt);
       formData.append('model', chosenModel);
+      formData.append('n', String(countParam));
       formData.append('size', chosenSize);
       if (genSettings.value.quality) formData.append('quality', genSettings.value.quality);
+      if (bgParam) formData.append('background', bgParam);
       if (genSettings.value.outputFormat) formData.append('output_format', genSettings.value.outputFormat);
+      if (genSettings.value.outputCompression !== undefined && (genSettings.value.outputFormat === 'jpeg' || genSettings.value.outputFormat === 'webp')) {
+        formData.append('output_compression', String(genSettings.value.outputCompression));
+      }
 
       response = await fetch(requestURL, {
         method: 'POST',
@@ -521,10 +534,14 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
         body: JSON.stringify({
           model: chosenModel,
           prompt: prompt,
-          n: 1,
+          n: countParam,
           size: chosenSize,
           quality: genSettings.value.quality,
-          ...(genSettings.value.outputFormat ? { output_format: genSettings.value.outputFormat } : {})
+          ...(bgParam ? { background: bgParam } : {}),
+          ...(genSettings.value.outputFormat ? { output_format: genSettings.value.outputFormat } : {}),
+          ...((genSettings.value.outputCompression !== undefined && (genSettings.value.outputFormat === 'jpeg' || genSettings.value.outputFormat === 'webp'))
+            ? { output_compression: Number(genSettings.value.outputCompression) }
+            : {})
         })
       });
     }
@@ -546,15 +563,22 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
     throw new Error(errMsg);
   }
 
-  if (!data || !data.data || data.data.length === 0 || (!data.data[0].url && !data.data[0].b64_json)) {
+  if (!data || !data.data || data.data.length === 0) {
     throw new Error('服务商未返回图片数据');
   }
 
-  const imageUrl = data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`;
-  return { imageUrl, chosenModel, chosenSize };
+  const imageUrls = (data.data || [])
+    .map(item => item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : null))
+    .filter(Boolean);
+
+  if (imageUrls.length === 0) {
+    throw new Error('服务商返回的数据中未包含有效图片');
+  }
+
+  return { imageUrls, imageUrl: imageUrls[0], chosenModel, chosenSize };
 };
 
-// 处理来自灵感画布的工作流生成 (支持单图或多图融合工作流)
+// 处理来自灵感画布的工作流生成 (支持单图或多图融合工作流，支持多张批量渲染)
 const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages, parentId, parentIds }) => {
   if (!isApiConfigured.value) {
     showToastMsg({ message: '请先在右上角配置有效的 API 方案！', type: 'error' });
@@ -566,9 +590,10 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
   const parents = (Array.isArray(parentIds) && parentIds.length > 0) ? parentIds : (parentId ? [parentId] : []);
 
   isGenerating.value = true;
+  const countToGen = Number(genSettings.value.imageCount) > 0 ? Number(genSettings.value.imageCount) : 1;
   const toastText = images.length > 1 
-    ? `多图融合任务提交 (${images.length}张参考图)，正在渲染...` 
-    : '画布渲染任务已提交，正在生成...';
+    ? `多图融合任务提交 (${images.length}张参考图，生成${countToGen}张)，正在渲染...` 
+    : `画布渲染任务已提交 (生成${countToGen}张)，正在绘制...`;
   showToastMsg({ message: toastText, type: 'info' });
 
   let finalPrompt = prompt;
@@ -579,43 +604,47 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
   }
 
   try {
-    const { imageUrl, chosenModel, chosenSize } = await executeApiCall({
+    const { imageUrls, chosenModel } = await executeApiCall({
       prompt: finalPrompt,
       model: model || genSettings.value.model,
       size: `${genSettings.value.width}x${genSettings.value.height}`,
       refImagesB64: images
     });
 
-    const recordId = Date.now();
-    const newRecord = {
-      id: recordId,
-      url: imageUrl,
-      prompt: finalPrompt,
-      width: genSettings.value.width,
-      height: genSettings.value.height,
-      model: chosenModel,
-      ratio: ratio || '1:1',
-      timestamp: recordId,
-      parentId: parents[0] || null,
-      parentIds: parents,
-      refImageCount: images.length
-    };
+    const baseTimestamp = Date.now();
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imgUrl = imageUrls[i];
+      const recordId = baseTimestamp + i;
+      const newRecord = {
+        id: recordId,
+        url: imgUrl,
+        prompt: finalPrompt,
+        width: genSettings.value.width,
+        height: genSettings.value.height,
+        model: chosenModel,
+        ratio: ratio || '1:1',
+        timestamp: recordId,
+        parentId: parents[0] || null,
+        parentIds: parents,
+        refImageCount: images.length
+      };
 
-    // 写入 IndexedDB (彻底解决 quota 异常)
-    await saveHistoryRecord(newRecord);
-    historyList.value.unshift(newRecord);
+      // 写入 IndexedDB (解决存储容量瓶颈)
+      await saveHistoryRecord(newRecord);
+      historyList.value.unshift(newRecord);
 
-    // 将新图片节点推送到无限画布中，自动建立多父级连线
-    if (canvasRef.value) {
-      canvasRef.value.addGeneratedImageToCanvas(newRecord, parents);
+      // 将新图片节点推送到无限画布中，自动建立多父级连线并智能错开
+      if (canvasRef.value) {
+        canvasRef.value.addGeneratedImageToCanvas(newRecord, parents, i);
+      }
+
+      // 后台缓存 Blob
+      cacheImage(recordId, imgUrl).catch(() => {});
     }
 
-    // 后台缓存 Blob
-    cacheImage(recordId, imageUrl).catch(() => {});
-
-    const successMsg = images.length > 1 
-      ? `多图融合绘制完成！汇聚衍生画面已锚定。` 
-      : '灵感画布渲染完成！新画面已锚定。';
+    const successMsg = imageUrls.length > 1 
+      ? `已成功生成 ${imageUrls.length} 张画面！已全部归档并锚定至画布。` 
+      : (images.length > 1 ? '多图融合绘制完成！汇聚衍生画面已锚定。' : '灵感画布渲染完成！新画面已锚定。');
     showToastMsg({ message: successMsg, type: 'success' });
   } catch (err) {
     console.error('Canvas generate error:', err);
@@ -625,7 +654,7 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
   }
 };
 
-// 处理来自底部常规输入的生成
+// 处理来自底部常规输入的生成 (支持多张批量生成)
 const generateFromBottomInput = async (promptText) => {
   if (!isApiConfigured.value) {
     showToastMsg({ message: '请先配置 API Key！', type: 'error' });
@@ -634,7 +663,8 @@ const generateFromBottomInput = async (promptText) => {
   }
 
   isGenerating.value = true;
-  showToastMsg({ message: '正在渲染新画面...', type: 'info' });
+  const countToGen = Number(genSettings.value.imageCount) > 0 ? Number(genSettings.value.imageCount) : 1;
+  showToastMsg({ message: `正在渲染新画面 (生成 ${countToGen} 张)...`, type: 'info' });
 
   let finalPrompt = promptText;
   if (usePersonalPrompt.value && personalPrompt.value.trim()) {
@@ -642,7 +672,7 @@ const generateFromBottomInput = async (promptText) => {
   }
 
   try {
-    const { imageUrl, chosenModel } = await executeApiCall({
+    const { imageUrls, chosenModel } = await executeApiCall({
       prompt: finalPrompt,
       model: genSettings.value.model,
       refImageB64: uploadedImageB64.value || null
@@ -653,29 +683,37 @@ const generateFromBottomInput = async (promptText) => {
     }
     uploadedImageB64.value = '';
 
-    const recordId = Date.now();
-    const newRecord = {
-      id: recordId,
-      url: imageUrl,
-      prompt: finalPrompt,
-      width: genSettings.value.width,
-      height: genSettings.value.height,
-      model: chosenModel,
-      ratio: genSettings.value.ratio,
-      timestamp: recordId
-    };
+    const baseTimestamp = Date.now();
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imgUrl = imageUrls[i];
+      const recordId = baseTimestamp + i;
+      const newRecord = {
+        id: recordId,
+        url: imgUrl,
+        prompt: finalPrompt,
+        width: genSettings.value.width,
+        height: genSettings.value.height,
+        model: chosenModel,
+        ratio: genSettings.value.ratio,
+        timestamp: recordId
+      };
 
-    // 存储至 IndexedDB
-    await saveHistoryRecord(newRecord);
-    historyList.value.unshift(newRecord);
+      // 存储至 IndexedDB
+      await saveHistoryRecord(newRecord);
+      historyList.value.unshift(newRecord);
 
-    // 同步给画布
-    if (canvasRef.value) {
-      canvasRef.value.addGeneratedImageToCanvas(newRecord);
+      // 同步给画布
+      if (canvasRef.value) {
+        canvasRef.value.addGeneratedImageToCanvas(newRecord, null, i);
+      }
+
+      cacheImage(recordId, imgUrl).catch(() => {});
     }
 
-    cacheImage(recordId, imageUrl).catch(() => {});
-    showToastMsg({ message: '绘制大功告成！画面已保存至画廊。', type: 'success' });
+    const successMsg = imageUrls.length > 1
+      ? `绘制完成！共生成 ${imageUrls.length} 张图片，已保存至画廊。`
+      : '绘制大功告成！画面已保存至画廊。';
+    showToastMsg({ message: successMsg, type: 'success' });
   } catch (err) {
     console.error('Bottom input generate error:', err);
     showToastMsg({ message: `生成失败: ${err.message}`, type: 'error' });
@@ -904,36 +942,42 @@ const closePreview = () => {
   outline: none !important;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-card) !important;
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--border-color) !important;
-  box-shadow: var(--shadow-sm);
-  color: var(--text-primary);
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--text-secondary);
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: var(--transition-smooth);
 }
 
+:root[data-theme="light"] .profile-trigger-btn {
+  background: transparent !important;
+  border: none !important;
+}
+
 .profile-trigger-btn:hover {
-  background: var(--bg-card-hover) !important;
-  border-color: var(--border-focus) !important;
+  background: var(--bg-subtle-hover) !important;
+  border: none !important;
   color: var(--text-primary);
-  box-shadow: 0 2px 14px var(--accent-glow);
-  transform: translateY(-1px);
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .profile-trigger-btn:hover {
+  background: var(--bg-subtle-hover) !important;
+  border: none !important;
 }
 
 .profile-trigger-btn.open {
-  background: var(--primary-gradient-subtle) !important;
-  border-color: var(--primary-color) !important;
+  background: var(--bg-subtle-hover) !important;
+  border: none !important;
   color: var(--primary-color) !important;
-  box-shadow: 0 0 16px var(--accent-glow);
-  transform: none;
+  box-shadow: none !important;
 }
 
 .action-icon.profile-icon {
@@ -961,19 +1005,19 @@ const closePreview = () => {
   color: var(--primary-color);
 }
 
-/* 浮动毛玻璃下拉菜单面板 (极简浮动岛) */
+/* 浮动毛玻璃下拉菜单面板 (极简无框纯净浮动岛) */
 .profile-dropdown-menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   width: 250px;
   padding: 8px;
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
+  border-radius: 12px;
+  background: var(--bg-surface-elevated, #161822);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg), 0 0 24px rgba(0, 0, 0, 0.3);
+  border: none !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
   z-index: 1000;
   transform-origin: top right;
 }
@@ -983,7 +1027,7 @@ const closePreview = () => {
   align-items: center;
   justify-content: space-between;
   padding: 6px 8px 8px 8px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none !important;
   margin-bottom: 6px;
 }
 

@@ -174,15 +174,19 @@ const download = () => {
 
 .tool-btn {
   background: rgba(255, 255, 255, 0.12);
+  border: none !important;
+  outline: none;
   color: #ffffff;
-  border-radius: var(--radius-pill);
+  border-radius: 12px;
   width: 42px;
   height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: var(--transition-smooth);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
 }
 
 .tool-btn:hover {

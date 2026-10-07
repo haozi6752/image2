@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64, imagesB64 } = req.body;
+  const { baseURL, apiKey, model, prompt, n, size, quality, background, output_format, output_compression, imageB64, imagesB64 } = req.body;
 
   if (!baseURL || !apiKey || !prompt) {
     res.status(400).json({ error: { message: '缺少必要参数 (baseURL, apiKey 或 prompt)' } });
@@ -66,6 +66,8 @@ export default async function handler(req, res) {
       }
     };
 
+    const countParam = Number(n) > 0 ? Number(n) : 1;
+
     if (isEditMode) {
       // 图生图模式：构建 FormData (支持多张参考图，遵循 OpenAI 官方规范)
       const formData = new FormData();
@@ -90,11 +92,15 @@ export default async function handler(req, res) {
       // 组装其余表单参数
       formData.append('prompt', prompt);
       formData.append('model', model);
+      formData.append('n', String(countParam));
       formData.append('size', size);
       
       // 官方部分 edits 端点不支持 quality，仅在 values 有意义时传递
       if (quality) {
         formData.append('quality', quality);
+      }
+      if (background) {
+        formData.append('background', background);
       }
       if (output_format) {
         formData.append('output_format', output_format);
@@ -112,9 +118,10 @@ export default async function handler(req, res) {
       fetchOptions.body = JSON.stringify({
         model,
         prompt,
-        n: 1,
+        n: countParam,
         size,
         quality,
+        ...(background ? { background } : {}),
         ...(output_format ? { output_format } : {}),
         ...(output_compression !== undefined ? { output_compression: Number(output_compression) } : {})
       });
