@@ -287,6 +287,7 @@ const personalPrompt = ref('');
 const sidebarVisible = ref(true);
 const isSettingsOpen = ref(false);
 const isGenerating = ref(false);
+const activeTasksCount = ref(0);
 const isLightboxOpen = ref(false);
 const activePreviewItem = ref({});
 
@@ -582,22 +583,26 @@ const executeApiCall = async ({ prompt, model, size, refImageB64, refImagesB64 }
   return { imageUrls, imageUrl: imageUrls[0], chosenModel, chosenSize };
 };
 
-// 处理来自灵感画布的工作流生成 (支持单图或多图融合工作流，支持多张批量渲染)
-const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages, parentId, parentIds }) => {
+// 处理来自灵感画布的工作流生成 (支持单图或多图融合工作流，支持多窗口并行生图与多张批量渲染)
+const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages, parentId, parentIds, windowId }) => {
   if (!isApiConfigured.value) {
     showToastMsg({ message: '请先在右上角配置有效的 API 方案！', type: 'error' });
     isSettingsOpen.value = true;
+    if (canvasRef.value) {
+      canvasRef.value.finishWindowGenerate(windowId);
+    }
     return;
   }
 
   const images = (Array.isArray(refImages) && refImages.length > 0) ? refImages : (refImage ? [refImage] : []);
   const parents = (Array.isArray(parentIds) && parentIds.length > 0) ? parentIds : (parentId ? [parentId] : []);
 
+  activeTasksCount.value++;
   isGenerating.value = true;
   const countToGen = Number(genSettings.value.imageCount) > 0 ? Number(genSettings.value.imageCount) : 1;
   const toastText = images.length > 1 
-    ? `多图融合任务提交 (${images.length}张参考图，生成${countToGen}张)，正在渲染...` 
-    : `画布渲染任务已提交 (生成${countToGen}张)，正在绘制...`;
+    ? `多图融合任务提交 (${images.length}张参考图，生成${countToGen}张)，正在并行渲染...` 
+    : `画布渲染任务已提交 (生成${countToGen}张)，正在并行绘制...`;
   showToastMsg({ message: toastText, type: 'info' });
 
   let finalPrompt = prompt;
@@ -637,12 +642,12 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
       await saveHistoryRecord(newRecord);
       historyList.value.unshift(newRecord);
 
-      // 将新图片节点推送到无限画布中，自动建立多父级连线并智能错开
+      // 将新图片节点推送到无限画布中，自动建立多父级连线并根据触发窗口智能定位
       if (canvasRef.value) {
-        canvasRef.value.addGeneratedImageToCanvas(newRecord, parents, i);
+        canvasRef.value.addGeneratedImageToCanvas(newRecord, parents, i, windowId);
       }
 
-      // 后台缓存 Blob
+      // 后台缓存 Blob (若处于纯网络云端模式，db.js 自动跳过持久缓存)
       cacheImage(recordId, imgUrl).catch(() => {});
     }
 
@@ -654,7 +659,11 @@ const handleCanvasGenerate = async ({ prompt, model, ratio, refImage, refImages,
     console.error('Canvas generate error:', err);
     showToastMsg({ message: `生成失败: ${err.message}`, type: 'error' });
   } finally {
-    isGenerating.value = false;
+    if (canvasRef.value) {
+      canvasRef.value.finishWindowGenerate(windowId);
+    }
+    activeTasksCount.value = Math.max(0, activeTasksCount.value - 1);
+    isGenerating.value = activeTasksCount.value > 0;
   }
 };
 
@@ -1303,18 +1312,9 @@ const closePreview = () => {
 
 .gallery-inner-container {
   flex: 1;
-  overflow-y: auto;
-  padding-bottom: 90px;
-}
-
-.gallery-bottom-input {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 90%;
-  max-width: 820px;
-  z-index: 50;
+  height: 100%;
+  overflow: hidden;
+  padding-bottom: 0;
 }
 
 /* Toast 提示 */

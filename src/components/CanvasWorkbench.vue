@@ -6,14 +6,14 @@
     @wheel="onWheel"
     :class="{ 'panning': isPanning, 'pointer-mode': toolMode === 'pointer' }"
   >
+    <!-- 背景网格坐标层 (优化：仅铺满 100% 视口，消除 20000x20000 的巨型图层重绘卡顿) -->
+    <div class="canvas-grid-bg" :style="gridBackgroundStyle"></div>
+
     <!-- 无限画布转换容器 -->
     <div 
       class="canvas-world" 
       :style="worldTransformStyle"
     >
-      <!-- 背景网格坐标层 -->
-      <div class="canvas-grid-bg" :style="gridBackgroundStyle"></div>
-
       <!-- 贝塞尔连线 SVG 层 -->
       <svg class="connections-layer">
         <defs>
@@ -47,7 +47,7 @@
           <!-- 1. 底层暗色衬托描边：用于线条立体分层与交叉时清晰辨识，区分归属 -->
           <path 
             :d="link.path" 
-            class="connection-curve-underlay"
+            class="connection-curve-underlay" 
             fill="none" 
             :stroke-width="(link.strokeWidth || 2.4) + 5"
           />
@@ -85,79 +85,96 @@
 
       <!-- 画布上的所有卡片节点 -->
       <div class="nodes-container">
-        <!-- 1. 生图主控制节点 (尺寸随内容真实变化，连线动态贴合当前真实边缘) -->
+        <!-- 1. 生图主控制节点列表 (支持多个创作窗口并行生图，数量不做上限) -->
         <div 
-          ref="configNodeEl"
+          v-for="win in creationWindows"
+          :key="win.id"
+          :ref="el => registerWinEl(win.id, el)"
           class="canvas-node config-node glass-panel"
-          :class="{ 'is-dragging': draggingNode === configNode }"
-          :style="{ transform: `translate3d(${configNode.x}px, ${configNode.y}px, 0)` }"
-          @mousedown.stop="startNodeDrag($event, configNode)"
+          :class="{ 
+            'is-dragging': draggingNode === win,
+            'is-active-window': activeConfigId === win.id
+          }"
+          :style="{ transform: `translate3d(${win.x}px, ${win.y}px, 0)` }"
+          @mousedown.stop="startNodeDrag($event, win)"
+          @click="activeConfigId = win.id"
         >
           <!-- 节点顶部拖拽柄 (无胶囊边框，极简状态指示) -->
           <div class="node-header">
             <div class="node-title">
               <span class="node-icon">✨</span>
-              <span>创作配置中心</span>
+              <span>{{ win.name || '创作配置中心' }}</span>
+              <span v-if="activeConfigId === win.id && creationWindows.length > 1" class="active-win-tag">焦点</span>
             </div>
-            <div class="node-status-indicator">
-              <span class="status-indicator-dot" :class="configNode.refImages && configNode.refImages.length > 0 ? 'mode-image' : 'mode-text'"></span>
-              <span class="status-indicator-text">
-                {{ configNode.refImages && configNode.refImages.length > 1 ? `多图融合 (${configNode.refImages.length}/16)` : configNode.refImages && configNode.refImages.length === 1 ? '单图参考' : '纯文生图' }}
-              </span>
+            <div class="node-header-right">
+              <div class="node-status-indicator">
+                <span class="status-indicator-dot" :class="win.refImages && win.refImages.length > 0 ? 'mode-image' : 'mode-text'"></span>
+                <span class="status-indicator-text">
+                  {{ win.refImages && win.refImages.length > 1 ? `多图融合 (${win.refImages.length}/16)` : win.refImages && win.refImages.length === 1 ? '单图参考' : '纯文生图' }}
+                </span>
+              </div>
+              <button 
+                v-if="creationWindows.length > 1"
+                class="win-close-btn"
+                @click.stop="closeCreationWindow(win.id)"
+                title="关闭此创作窗口"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
             </div>
           </div>
 
           <!-- 提示词输入区 -->
           <div class="node-body">
             <!-- 多图参考托盘与引用区域 (支持最多 16 张，符合 OpenAI 规范) -->
-            <div v-if="configNode.refImages && configNode.refImages.length > 0" class="multi-reference-container">
+            <div v-if="win.refImages && win.refImages.length > 0" class="multi-reference-container">
               <div class="ref-container-header">
                 <span class="ref-container-title">
                   <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                  <span>已载入参考图 ({{ configNode.refImages.length }}/16 张)</span>
+                  <span>已载入参考图 ({{ win.refImages.length }}/16 张)</span>
                 </span>
-                <button class="clear-all-refs-btn" @click.stop="clearConfigRefImages" title="清空全部参考图">清空组合</button>
+                <button class="clear-all-refs-btn" @click.stop="clearWindowRefImages(win)" title="清空全部参考图">清空组合</button>
               </div>
 
               <!-- 缩略图横向列表 -->
               <div class="ref-thumbnails-list">
                 <div 
-                  v-for="(img, idx) in configNode.refImages" 
+                  v-for="(img, idx) in win.refImages" 
                   :key="img.id || idx" 
                   class="ref-thumbnail-card"
                   :title="`参考图 [Image ${idx + 1}]`"
                 >
                   <img :src="img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" />
                   <span class="ref-order-tag">Image {{ idx + 1 }}</span>
-                  <button class="remove-ref-btn" @click.stop="removeRefImage(idx)" title="移除此参考图">
+                  <button class="remove-ref-btn" @click.stop="removeWindowRefImage(win, idx)" title="移除此参考图">
                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
                 </div>
 
                 <!-- 托盘末尾快捷追加本地图片小卡片 -->
-                <label v-if="configNode.refImages.length < 16" class="ref-add-card" title="导入更多本地参考图 (单次或批量)">
-                  <input type="file" multiple accept="image/*" @change="handleLocalRefUpload" style="display: none;" />
+                <label v-if="win.refImages.length < 16" class="ref-add-card" title="导入更多本地参考图 (单次或批量)">
+                  <input type="file" multiple accept="image/*" @change="handleWindowLocalRefUpload(win, $event)" style="display: none;" />
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span>添加</span>
                 </label>
               </div>
 
-              <!-- 快捷引用小芯片栏 (去除厚重胶囊边框) -->
+              <!-- 快捷引用小芯片栏 -->
               <div class="quick-ref-pills">
                 <span class="pills-label">提示词引用:</span>
                 <button 
-                  v-for="(_, idx) in configNode.refImages" 
+                  v-for="(_, idx) in win.refImages" 
                   :key="idx" 
                   class="ref-pill-btn"
-                  @click.stop="insertImageRefToPrompt(idx + 1)"
+                  @click.stop="insertWindowRefPill(win, idx + 1)"
                   :title="`在提示词中插入 [Image ${idx + 1}]`"
                 >
                   + Image {{ idx + 1 }}
                 </button>
                 <button 
-                  v-if="configNode.refImages.length >= 2"
+                  v-if="win.refImages.length >= 2"
                   class="ref-pill-btn template-pill"
-                  @click.stop="insertBlendTemplate"
+                  @click.stop="insertWindowBlendTemplate(win)"
                   title="插入经典多图融合提示词句式"
                 >
                   ⚡ 融合句式
@@ -165,7 +182,7 @@
               </div>
             </div>
 
-            <!-- 侧栏参数极简规格流 (彻底消灭胶囊框叠胶囊！纯净文字排版与中圆点分隔) -->
+            <!-- 侧栏参数规格流 -->
             <div class="config-active-specs" v-if="currentSettings">
               <span class="spec-item spec-model" title="当前模型 (在侧边栏选择切换)">
                 <span class="spec-dot"></span>
@@ -182,12 +199,12 @@
             </div>
 
             <textarea 
-              v-model="configNode.prompt"
+              v-model="win.prompt"
               class="node-prompt-input"
               placeholder="在此输入画面创意描述或修改指令... (多图时可使用 Image 1、Image 2 指定角色与画风)"
               rows="4"
-              @keydown.enter.ctrl.prevent="triggerGenerate"
-              @keydown.enter.meta.prevent="triggerGenerate"
+              @keydown.enter.ctrl.prevent="triggerGenerateForWindow(win)"
+              @keydown.enter.meta.prevent="triggerGenerateForWindow(win)"
               @mousedown.stop
               @mouseup.stop
               @click.stop
@@ -196,22 +213,22 @@
 
             <!-- 操作按钮行 -->
             <div class="node-actions" @mousedown.stop>
-              <!-- 上传自定义本地图作为参考 (支持单选或多选) -->
+              <!-- 上传自定义本地图作为参考 -->
               <label class="action-icon-btn upload-ref-btn" title="批量导入本地图片作为参考 (最多16张)">
-                <input type="file" multiple accept="image/*" @change="handleLocalRefUpload" style="display: none;" />
+                <input type="file" multiple accept="image/*" @change="handleWindowLocalRefUpload(win, $event)" style="display: none;" />
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                <span>{{ configNode.refImages && configNode.refImages.length > 0 ? '追加参考图' : '导入参考图' }}</span>
+                <span>{{ win.refImages && win.refImages.length > 0 ? '追加参考图' : '导入参考图' }}</span>
               </label>
 
-              <!-- 开始生成按钮 -->
+              <!-- 开始生成按钮 (多窗口独立状态，互不阻塞，并行生图) -->
               <button 
                 class="generate-main-btn" 
-                :disabled="isGenerating || !configNode.prompt.trim()"
-                @click="triggerGenerate"
+                :disabled="win.isGenerating || !win.prompt.trim()"
+                @click="triggerGenerateForWindow(win)"
               >
-                <span v-if="isGenerating" class="btn-spinner"></span>
+                <span v-if="win.isGenerating" class="btn-spinner"></span>
                 <span v-else>
-                  {{ configNode.refImages && configNode.refImages.length > 1 ? `＋ 融合生成 (${configNode.refImages.length}图)` : '＋ 开始渲染' }}
+                  {{ win.refImages && win.refImages.length > 1 ? `＋ 融合生成 (${win.refImages.length}图)` : '＋ 开始渲染' }}
                 </span>
               </button>
             </div>
@@ -443,6 +460,20 @@
 
         <div class="dock-divider"></div>
 
+        <!-- 创作窗口添加控制 (无上限并行生图) -->
+        <div class="dock-group">
+          <button 
+            class="dock-btn add-win-dock-btn" 
+            @click="addCreationWindow" 
+            title="＋ 添加新创作窗口 (支持多窗口并行独立生图，不设数量上限)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            <span class="dock-btn-label">＋ 创作窗口</span>
+          </button>
+        </div>
+
+        <div class="dock-divider"></div>
+
         <!-- 缩放控制栏 -->
         <div class="dock-group zoom-group">
           <button class="dock-btn" @click="zoomOut" title="缩小画布">
@@ -512,17 +543,229 @@ let dragStartY = 0;
 let nodeOrigX = 0;
 let nodeOrigY = 0;
 
-// 配置中心主节点（支持多张参考图，最多16张，符合 OpenAI 官方规范）
-const configNode = reactive({
-  id: 'config-center',
-  x: 100,
-  y: 120,
-  prompt: '',
-  refImages: [], // 数组：[{ id, url, name, parentId }]
-  parentImageId: null // 兼容字段
+// 创作配置中心节点列表（支持无限添加多个创作窗口，各自独立参数与并行生图）
+const creationWindows = ref([
+  {
+    id: 'config-center-1',
+    name: '创作中心 #1',
+    x: 100,
+    y: 120,
+    prompt: '',
+    refImages: [], // 数组：[{ id, url, name, parentId }]
+    parentImageId: null,
+    isGenerating: false
+  }
+]);
+
+// 当前活跃获得焦点的创作窗口 ID
+const activeConfigId = ref('config-center-1');
+
+const activeConfigNode = computed(() => {
+  return creationWindows.value.find(w => w.id === activeConfigId.value) || creationWindows.value[0];
 });
 
-// 创作配置中心真实 DOM 引用与动态尺寸测量 (解决视频中创作窗口大小改变但节点连接判定原大小的缺陷)
+// 兼容单节点调用的计算属性
+const configNode = computed(() => activeConfigNode.value);
+
+// 添加新创作窗口
+const addCreationWindow = () => {
+  const newIndex = creationWindows.value.length + 1;
+  const newId = `config-center-${Date.now()}`;
+  const lastWin = creationWindows.value[creationWindows.value.length - 1];
+  const newX = lastWin ? lastWin.x + 480 : 100;
+  const newY = lastWin ? lastWin.y : 120;
+
+  const newWindow = {
+    id: newId,
+    name: `创作中心 #${newIndex}`,
+    x: newX,
+    y: newY,
+    prompt: '',
+    refImages: [],
+    parentImageId: null,
+    isGenerating: false
+  };
+
+  creationWindows.value.push(newWindow);
+  activeConfigId.value = newId;
+  emit('show-toast', { message: `已添加新创作窗口 #${newIndex}！可并行独立生图。`, type: 'success' });
+};
+
+// 关闭创作窗口
+const closeCreationWindow = (winId) => {
+  if (creationWindows.value.length <= 1) {
+    emit('show-toast', { message: '至少保留一个创作窗口', type: 'info' });
+    return;
+  }
+  creationWindows.value = creationWindows.value.filter(w => w.id !== winId);
+  if (activeConfigId.value === winId) {
+    activeConfigId.value = creationWindows.value[0]?.id || null;
+  }
+  emit('show-toast', { message: '创作窗口已关闭', type: 'info' });
+};
+
+// 触发特定创作窗口的独立生图
+const triggerGenerateForWindow = (win) => {
+  if (!win.prompt.trim() || win.isGenerating) return;
+
+  win.isGenerating = true;
+  activeConfigId.value = win.id;
+
+  const refImagesUrls = (win.refImages || []).map(img => img.url);
+  const parentIds = (win.refImages || []).filter(img => img.parentId).map(img => img.parentId);
+
+  emit('generate', {
+    windowId: win.id,
+    prompt: win.prompt.trim(),
+    model: props.currentSettings?.model || 'gpt-image-2.5-flare',
+    ratio: props.currentSettings?.ratio || '1:1',
+    refImage: refImagesUrls[0] || null,
+    refImages: refImagesUrls,
+    parentId: parentIds[0] || null,
+    parentIds: parentIds
+  });
+};
+
+// 完成特定创作窗口的生图任务 (由父组件在 API 返回后调用)
+const finishWindowGenerate = (windowId) => {
+  if (!windowId) {
+    creationWindows.value.forEach(w => { w.isGenerating = false; });
+    return;
+  }
+  const targetWin = creationWindows.value.find(w => w.id === windowId);
+  if (targetWin) {
+    targetWin.isGenerating = false;
+  }
+};
+
+// 为特定创作窗口批量导入本地参考图
+const handleWindowLocalRefUpload = (win, e) => {
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+
+  if (!win.refImages) win.refImages = [];
+
+  const availableSlots = 16 - win.refImages.length;
+  if (availableSlots <= 0) {
+    emit('show-toast', { message: '参考图数量已达上限 (单次最多 16 张)', type: 'error' });
+    e.target.value = '';
+    return;
+  }
+
+  const filesToProcess = files.slice(0, availableSlots);
+  let processedCount = 0;
+
+  filesToProcess.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const max_dim = 1536;
+
+        if (width > max_dim || height > max_dim) {
+          if (width > height) {
+            height = Math.round((height * max_dim) / width);
+            width = max_dim;
+          } else {
+            width = Math.round((width * max_dim) / height);
+            height = max_dim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const compressedDataUrl = canvas.toDataURL('image/png');
+        win.refImages.push({
+          id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          url: compressedDataUrl,
+          name: `Image ${win.refImages.length + 1}`,
+          parentId: null
+        });
+
+        processedCount++;
+        if (processedCount === filesToProcess.length) {
+          emit('show-toast', { 
+            message: `成功载入 ${filesToProcess.length} 张本地参考图至 [${win.name}] (当前共 ${win.refImages.length}/16 张)`, 
+            type: 'info' 
+          });
+        }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  e.target.value = '';
+};
+
+// 清空特定创作窗口的参考图
+const clearWindowRefImages = (win) => {
+  win.refImages = [];
+  win.parentImageId = null;
+  emit('show-toast', { message: `已清空 [${win.name}] 参考组合，切换为纯文生图`, type: 'info' });
+};
+
+// 移除特定创作窗口的单张参考图
+const removeWindowRefImage = (win, index) => {
+  if (win.refImages) {
+    const removed = win.refImages.splice(index, 1)[0];
+    if (win.refImages.length === 0) {
+      win.parentImageId = null;
+    } else if (removed && win.parentImageId === (removed.parentId || removed.id)) {
+      win.parentImageId = win.refImages[0].parentId || win.refImages[0].id || null;
+    }
+    emit('show-toast', { message: `已移出参考图 (剩余 ${win.refImages.length} 张)`, type: 'info' });
+  }
+};
+
+// 插入特定窗口的参考引用标签
+const insertWindowRefPill = (win, imageIndex) => {
+  const refTag = `Image ${imageIndex}`;
+  if (!win.prompt.includes(refTag)) {
+    if (win.prompt.trim().length > 0) {
+      win.prompt += `，融合 ${refTag} 的视觉特征`;
+    } else {
+      win.prompt = `以 ${refTag} 为主要参考，`;
+    }
+  } else {
+    win.prompt += ` ${refTag}`;
+  }
+  emit('show-toast', { message: `已在 [${win.name}] 提示词插入 [${refTag}] 引用`, type: 'info' });
+};
+
+// 插入特定窗口的多图融合模板
+const insertWindowBlendTemplate = (win) => {
+  const count = win.refImages?.length || 0;
+  let template = '';
+  if (count === 2) {
+    template = '\n将 Image 1 的构图与主体角色，与 Image 2 的艺术画风、材质纹理完美融合。';
+  } else if (count >= 3) {
+    template = '\n以 Image 1 作为主体人物，融合 Image 2 的服装与材质，置于 Image 3 展现的场景光影中。';
+  } else {
+    template = '\n参考 Image 1 的视觉细节进行高质量衍生优化。';
+  }
+  win.prompt = (win.prompt.trim() + template).trim();
+  emit('show-toast', { message: `已填充 [${win.name}] 多图融合提示词模版！`, type: 'success' });
+};
+
+// 注册创作窗口 DOM 测量引用
+const winEls = new Map();
+const registerWinEl = (winId, el) => {
+  if (el) {
+    winEls.set(winId, el);
+    configRealWidth.value = el.offsetWidth || 440;
+    configRealHeight.value = el.offsetHeight || 360;
+  } else {
+    winEls.delete(winId);
+  }
+};
+
 const configNodeEl = ref(null);
 const configRealWidth = ref(440);
 const configRealHeight = ref(360);
@@ -537,7 +780,7 @@ const hoveredPipelineId = ref(null);
 
 // 判断当前是否有活跃的参考图组合
 const isAnyRefActive = computed(() => {
-  return configNode.refImages && configNode.refImages.length > 0;
+  return creationWindows.value.some(w => w.refImages && w.refImages.length > 0);
 });
 
 // 计算卡片动态总高度（精确对准卡片右侧中点 handle 坐标）
@@ -551,72 +794,79 @@ const getNodeHeight = (node) => {
   return imgH + extraH;
 };
 
-// 判断节点是否在参考组合中
+// 判断节点是否在当前活跃窗口的参考组合中
 const isNodeInRefImages = (nodeId) => {
-  return configNode.refImages && configNode.refImages.some(img => img.id === nodeId || img.parentId === nodeId);
+  const targetWin = activeConfigNode.value;
+  return targetWin?.refImages && targetWin.refImages.some(img => img.id === nodeId || img.parentId === nodeId);
 };
 
-// 获取节点在参考组合中的序号 (Image 1, Image 2...)
+// 获取节点在活跃窗口参考组合中的序号 (Image 1, Image 2...)
 const getRefIndex = (nodeId) => {
-  if (!configNode.refImages) return '';
-  const idx = configNode.refImages.findIndex(img => img.id === nodeId || img.parentId === nodeId);
+  const targetWin = activeConfigNode.value;
+  if (!targetWin?.refImages) return '';
+  const idx = targetWin.refImages.findIndex(img => img.id === nodeId || img.parentId === nodeId);
   return idx !== -1 ? idx + 1 : '';
 };
 
-// 移出单个参考图
+// 移出当前活跃窗口的单个参考图
 const removeNodeFromRefImages = (nodeId) => {
-  if (configNode.refImages) {
-    configNode.refImages = configNode.refImages.filter(img => img.id !== nodeId && img.parentId !== nodeId);
-    if (configNode.refImages.length === 0) {
-      configNode.parentImageId = null;
-    } else if (configNode.parentImageId === nodeId) {
-      configNode.parentImageId = configNode.refImages[0].parentId || configNode.refImages[0].id || null;
+  const targetWin = activeConfigNode.value;
+  if (targetWin?.refImages) {
+    targetWin.refImages = targetWin.refImages.filter(img => img.id !== nodeId && img.parentId !== nodeId);
+    if (targetWin.refImages.length === 0) {
+      targetWin.parentImageId = null;
+    } else if (targetWin.parentImageId === nodeId) {
+      targetWin.parentImageId = targetWin.refImages[0].parentId || targetWin.refImages[0].id || null;
     }
-    emit('show-toast', { message: `已移出参考图 (剩余 ${configNode.refImages.length} 张)`, type: 'info' });
+    emit('show-toast', { message: `已移出参考图 (剩余 ${targetWin.refImages.length} 张)`, type: 'info' });
   }
 };
 
-// 切换节点在参考组合中的选中状态 (加入 / 移除)
+// 切换节点在当前活跃窗口参考组合中的选中状态 (加入 / 移除)
 const toggleNodeInRefImages = (node) => {
-  if (!configNode.refImages) configNode.refImages = [];
-  const existingIdx = configNode.refImages.findIndex(img => img.id === node.id || img.parentId === node.id);
+  const targetWin = activeConfigNode.value;
+  if (!targetWin) return;
+  if (!targetWin.refImages) targetWin.refImages = [];
+  const existingIdx = targetWin.refImages.findIndex(img => img.id === node.id || img.parentId === node.id);
   
   if (existingIdx !== -1) {
     removeNodeFromRefImages(node.id);
   } else {
-    if (configNode.refImages.length >= 16) {
+    if (targetWin.refImages.length >= 16) {
       emit('show-toast', { message: '已达到 OpenAI 规范上限：单次生图最多支持 16 张参考图', type: 'error' });
       return;
     }
     // 用户规则：当选择一张图为参考图时，如果是首张参考图，清除提示词输入框文本！
-    if (configNode.refImages.length === 0) {
-      configNode.prompt = '';
-      configNode.parentImageId = node.id;
+    if (targetWin.refImages.length === 0) {
+      targetWin.prompt = '';
+      targetWin.parentImageId = node.id;
     }
-    configNode.refImages.push({
+    targetWin.refImages.push({
       id: node.id,
       url: node.url,
-      name: `Image ${configNode.refImages.length + 1}`,
+      name: `Image ${targetWin.refImages.length + 1}`,
       parentId: node.id
     });
     emit('show-toast', { 
-      message: `已设为 [Image ${configNode.refImages.length}] 参考图${configNode.refImages.length === 1 ? ' (提示词已清空)' : ''}`, 
+      message: `已设为 [${targetWin.name}] 的 [Image ${targetWin.refImages.length}] 参考图${targetWin.refImages.length === 1 ? ' (提示词已清空)' : ''}`, 
       type: 'success' 
     });
   }
 };
 
-// 核心功能：以此图作为唯一基准衍生（清空其他组合与提示词）
+// 核心功能：以此图作为当前活跃窗口的唯一基准衍生（清空其他组合与提示词）
 const setAsSoleReference = (node) => {
-  configNode.refImages = [{
+  const targetWin = activeConfigNode.value;
+  if (!targetWin) return;
+  targetWin.refImages = [{
     id: node.id,
     url: node.url,
     name: 'Image 1',
     parentId: node.id
   }];
-  configNode.parentImageId = node.id;
-  configNode.prompt = ''; // 按用户要求清空
-  emit('show-toast', { message: '已设为唯一基准参考（提示词已清空，可输入新构想）', type: 'success' });
+  targetWin.parentImageId = node.id;
+  targetWin.prompt = '';
+  emit('show-toast', { message: `已设为 [${targetWin.name}] 唯一基准参考（提示词已清空）`, type: 'success' });
 };
 
 // 核心功能：将生成的图独立出去 (断开与创作框的连线，固化为提示词血统小方框，创作中心同时独立)
@@ -829,86 +1079,95 @@ const calculateSmartConnector = (rectFrom, rectTo) => {
   };
 };
 
-// 计算所有活跃的连接线（四周无缝连续物理滑动 + 创作窗口实时实际大小对齐 + 交叉分层）
+// 计算所有活跃的连接线（四周无缝连续物理滑动 + 支持多创作窗口独立连线 + 交叉分层）
 const activeLinks = computed(() => {
   const links = [];
-  // 实时采用创作中心的真实 DOM 测量高宽，绝不使用死值
-  const W_c = configRealWidth.value || 440;
-  const H_c = configRealHeight.value || 360;
 
-  const rectConfig = {
-    x: configNode.x,
-    y: configNode.y,
-    w: W_c,
-    h: H_c
-  };
+  // 1. 遍历所有创作窗口，独立计算各自的向心参考连线与向外输出连线
+  creationWindows.value.forEach(win => {
+    const el = winEls.get(win.id);
+    const winW = el?.offsetWidth || 440;
+    const winH = el?.offsetHeight || 360;
 
-  // 1. 汇入创作配置中心的参考图连线
-  if (configNode.refImages && configNode.refImages.length > 0) {
-    const parentNodes = [];
-    configNode.refImages.forEach(refItem => {
-      const pid = refItem.parentId || refItem.id;
-      if (pid) {
-        const parent = imageNodes.value.find(n => n.id === pid);
-        if (parent && !parentNodes.some(item => item.id === parent.id)) {
-          parentNodes.push(parent);
+    const rectWin = {
+      x: win.x,
+      y: win.y,
+      w: winW,
+      h: winH
+    };
+
+    // 1.1 汇入该创作窗口的参考图连线
+    if (win.refImages && win.refImages.length > 0) {
+      const parentNodes = [];
+      win.refImages.forEach(refItem => {
+        const pid = refItem.parentId || refItem.id;
+        if (pid) {
+          const parent = imageNodes.value.find(n => n.id === pid);
+          if (parent && !parentNodes.some(item => item.id === parent.id)) {
+            parentNodes.push(parent);
+          }
         }
-      }
-    });
-
-    parentNodes.forEach(parent => {
-      const cardW = parent.width || 280;
-      const cardH = getNodeHeight(parent);
-      const rectCard = {
-        x: parent.x,
-        y: parent.y,
-        w: cardW,
-        h: cardH
-      };
-
-      // 实时计算平滑边界滑动连接
-      const conn = calculateSmartConnector(rectCard, rectConfig);
-
-      links.push({
-        id: `ref-link-${parent.id}`,
-        type: 'reference',
-        stroke: 'url(#linkGradient)',
-        strokeWidth: 2.2,
-        fromX: conn.fromX,
-        fromY: conn.fromY,
-        toX: conn.toX,
-        toY: conn.toY,
-        path: conn.path
       });
-    });
-  }
 
-  // 2. 最新生成图的高亮输出连线 (创作配置中心 -> 新图)
-  if (recentGeneratedNodeId.value) {
-    const recentNode = imageNodes.value.find(n => n.id === recentGeneratedNodeId.value);
-    if (recentNode && recentNode.isRecentGenerated) {
-      const rectRecent = {
-        x: recentNode.x,
-        y: recentNode.y,
-        w: recentNode.width || 280,
-        h: getNodeHeight(recentNode)
-      };
-      const conn = calculateSmartConnector(rectConfig, rectRecent);
+      parentNodes.forEach(parent => {
+        const cardW = parent.width || 280;
+        const cardH = getNodeHeight(parent);
+        const rectCard = {
+          x: parent.x,
+          y: parent.y,
+          w: cardW,
+          h: cardH
+        };
 
-      links.push({
-        id: `recent-output-${recentNode.id}`,
-        type: 'recent-output',
-        stroke: 'url(#recentOutputGradient)',
-        strokeWidth: 2.8,
-        filter: 'url(#glowRecent)',
-        fromX: conn.fromX,
-        fromY: conn.fromY,
-        toX: conn.toX,
-        toY: conn.toY,
-        path: conn.path
+        const conn = calculateSmartConnector(rectCard, rectWin);
+
+        links.push({
+          id: `ref-link-${win.id}-${parent.id}`,
+          type: 'reference',
+          windowId: win.id,
+          stroke: 'url(#linkGradient)',
+          strokeWidth: 2.2,
+          fromX: conn.fromX,
+          fromY: conn.fromY,
+          toX: conn.toX,
+          toY: conn.toY,
+          path: conn.path
+        });
       });
     }
-  }
+
+    // 1.2 从该创作窗口连向最新生成图的高亮输出连线
+    if (recentGeneratedNodeId.value) {
+      const recentNode = imageNodes.value.find(n => n.id === recentGeneratedNodeId.value);
+      if (recentNode && recentNode.isRecentGenerated) {
+        // 如果该节点由当前窗口产生，或者属于当前获得焦点的窗口
+        const isBelong = recentNode.sourceWindowId ? (recentNode.sourceWindowId === win.id) : (win.id === activeConfigId.value);
+        if (isBelong) {
+          const rectRecent = {
+            x: recentNode.x,
+            y: recentNode.y,
+            w: recentNode.width || 280,
+            h: getNodeHeight(recentNode)
+          };
+          const conn = calculateSmartConnector(rectWin, rectRecent);
+
+          links.push({
+            id: `recent-output-${win.id}-${recentNode.id}`,
+            type: 'recent-output',
+            windowId: win.id,
+            stroke: 'url(#recentOutputGradient)',
+            strokeWidth: 2.8,
+            filter: 'url(#glowRecent)',
+            fromX: conn.fromX,
+            fromY: conn.fromY,
+            toX: conn.toX,
+            toY: conn.toY,
+            path: conn.path
+          });
+        }
+      }
+    }
+  });
 
   // 3. 提示词血统小方框连线 (参考图 -> 小方框 -> 生成图)
   derivationPipelines.value.forEach(pipe => {
@@ -1432,103 +1691,150 @@ const fitNodesInView = (nodes) => {
   animateViewportSmooth(targetPanX, targetPanY, targetScale, 480);
 };
 
-// 自动排版对齐：四张图排成一列为最大限度，超过4张采用多列紧凑布局，原则是参与参考图尽可能在页面视野内，不被遮挡
+// 自动排版对齐：围绕创作窗口四周自然环绕摆放 (Surrounding Orbit Layout)
+// 彻底打破传统的死板列排布，充分利用画布四周无界空间，配合物理高亮贝塞尔连线呈现众星拱月的视觉拓扑
 const autoOrganizeNodes = () => {
   const CARD_WIDTH = 280;
   const CARD_HEIGHT = 330;
-  const ROW_GAP = 28;
-  const COL_GAP = 90;
-  const MAX_PER_COL = 4; // 铁律规则：四张图排成一列已经是最大限度！
 
-  const configW = configRealWidth.value || 440;
-  const configH = configRealHeight.value || 360;
-
-  if (imageNodes.value.length === 0) {
-    animateNodesSmooth([
-      { node: configNode, startX: configNode.x, startY: configNode.y, targetX: 100, targetY: 100 }
-    ], 450, () => fitView());
-    emit('show-toast', { message: '创作卡片已就位', type: 'info' });
-    return;
-  }
+  if (creationWindows.value.length === 0) return;
 
   const targetsMap = new Map();
   const allNodes = imageNodes.value;
   const nodeMap = new Map();
   allNodes.forEach(n => nodeMap.set(n.id, n));
 
-  // 1. 优先提取当前配置中心引用的所有参考图
-  const refNodeIds = [];
-  if (configNode.refImages && configNode.refImages.length > 0) {
-    configNode.refImages.forEach(refItem => {
-      const targetId = refItem.parentId || refItem.id;
-      if (targetId && nodeMap.has(targetId) && !refNodeIds.includes(targetId)) {
-        refNodeIds.push(targetId);
-      }
+  // 1. 排布各个创作窗口的位置 (如果有多个窗口，水平间隔 1100px 依次排开)
+  const winMoveList = [];
+  const baseSpacing = 1150;
+  const startX = 600;
+  const startY = 450;
+
+  creationWindows.value.forEach((win, wIdx) => {
+    const winTargetX = startX + wIdx * baseSpacing;
+    const winTargetY = startY;
+    winMoveList.push({
+      node: win,
+      startX: win.x,
+      startY: win.y,
+      targetX: winTargetX,
+      targetY: winTargetY
     });
-  } else if (configNode.parentImageId && nodeMap.has(configNode.parentImageId)) {
-    refNodeIds.push(configNode.parentImageId);
-  }
-
-  const totalRefs = refNodeIds.length;
-  let configTargetX = 400;
-  let configTargetY = 200;
-
-  if (totalRefs > 0) {
-    // 列数计算：每列最多 4 张
-    const numCols = Math.ceil(totalRefs / MAX_PER_COL);
-    // 均衡分配每列数量，使得各列垂直高度最小化，最大限度保留在视口内
-    const itemsPerCol = Math.ceil(totalRefs / numCols);
-
-    const maxItemsInCol = Math.min(MAX_PER_COL, itemsPerCol);
-    const refColHeight = maxItemsInCol * CARD_HEIGHT + (maxItemsInCol - 1) * ROW_GAP;
-    
-    // 让创作中心在垂直方向居中对齐参考图区域
-    configTargetY = Math.max(80, Math.round((refColHeight - configH) / 2 + 80));
-    // 创作中心的 X 坐标：放在所有参考图列的右侧
-    const totalRefWidth = numCols * CARD_WIDTH + (numCols - 1) * COL_GAP;
-    configTargetX = 80 + totalRefWidth + COL_GAP;
-
-    // 排布参考图各列（紧挨创作中心的是第 0 列，再往左是第 1 列）
-    let currentRefIdx = 0;
-    for (let c = 0; c < numCols; c++) {
-      const colX = configTargetX - COL_GAP - (c + 1) * CARD_WIDTH - c * COL_GAP;
-      const countInThisCol = Math.min(itemsPerCol, totalRefs - currentRefIdx);
-      const thisColHeight = countInThisCol * CARD_HEIGHT + (countInThisCol - 1) * ROW_GAP;
-      let startY = 80 + Math.round((refColHeight - thisColHeight) / 2);
-
-      for (let r = 0; r < countInThisCol; r++) {
-        const id = refNodeIds[currentRefIdx++];
-        targetsMap.set(id, { x: colX, y: startY });
-        startY += CARD_HEIGHT + ROW_GAP;
-      }
-    }
-  } else {
-    configTargetX = 100;
-    configTargetY = 100;
-  }
-
-  // 2. 收集非参考图（下游衍生图或未绑定图），排布在创作中心的右侧
-  const remainingNodes = allNodes.filter(n => !refNodeIds.includes(n.id));
-  if (remainingNodes.length > 0) {
-    const rightStartX = configTargetX + configW + COL_GAP;
-    remainingNodes.forEach((node, idx) => {
-      const col = Math.floor(idx / 3);
-      const row = idx % 3;
-      const x = rightStartX + col * (CARD_WIDTH + 60);
-      const y = 80 + row * (CARD_HEIGHT + ROW_GAP);
-      targetsMap.set(node.id, { x, y });
-    });
-  }
-
-  // 3. 构建全部节点的平滑移动任务列表
-  const moveList = [];
-  moveList.push({
-    node: configNode,
-    startX: configNode.x,
-    startY: configNode.y,
-    targetX: configTargetX,
-    targetY: configTargetY
   });
+
+  // 2. 针对每个创作窗口，收集其归属的参考图与衍生图
+  const assignedNodeIds = new Set();
+
+  creationWindows.value.forEach((win, wIdx) => {
+    const winTargetX = startX + wIdx * baseSpacing;
+    const winTargetY = startY;
+    const el = winEls.get(win.id);
+    const winW = el?.offsetWidth || 440;
+    const winH = el?.offsetHeight || 360;
+    const winCenterX = winTargetX + winW / 2;
+    const winCenterY = winTargetY + winH / 2;
+
+    // A. 提取归属此窗口的参考图
+    const refIds = [];
+    if (win.refImages && win.refImages.length > 0) {
+      win.refImages.forEach(refItem => {
+        const tid = refItem.parentId || refItem.id;
+        if (tid && nodeMap.has(tid) && !refIds.includes(tid) && !assignedNodeIds.has(tid)) {
+          refIds.push(tid);
+          assignedNodeIds.add(tid);
+        }
+      });
+    }
+
+    // B. 提取归属此窗口的生成图 (由该窗口产生)
+    const genIds = [];
+    allNodes.forEach(node => {
+      if (!assignedNodeIds.has(node.id)) {
+        const belongsToThisWin = node.sourceWindowId === win.id || 
+          (Array.isArray(node.sourceRefIds) && node.sourceRefIds.some(rId => refIds.includes(rId)));
+        if (belongsToThisWin) {
+          genIds.push(node.id);
+          assignedNodeIds.add(node.id);
+        }
+      }
+    });
+
+    // 环绕轨道半轴基础尺寸
+    const baseRx = 460;
+    const baseRy = 340;
+
+    // C. 摆放参考图：错落摆放在创作窗口的左半侧及上方四周 (角度从 100° 到 260°)
+    const totalRefs = refIds.length;
+    if (totalRefs > 0) {
+      refIds.forEach((id, idx) => {
+        // 多圈自适应：每 5 张扩展一圈半径
+        const orbitLayer = Math.floor(idx / 5);
+        const idxInLayer = idx % 5;
+        const countInLayer = Math.min(5, totalRefs - orbitLayer * 5);
+        const rx = baseRx + orbitLayer * 330;
+        const ry = baseRy + orbitLayer * 280;
+
+        // 弧度分布：110°(0.61π) 到 250°(1.39π) 覆盖正上、左上、正左、左下、正下
+        const angleStart = Math.PI * 0.65;
+        const angleEnd = Math.PI * 1.35;
+        const angle = countInLayer === 1 
+          ? Math.PI 
+          : angleStart + (angleEnd - angleStart) * (idxInLayer / (countInLayer - 1));
+
+        const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
+        const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
+        targetsMap.set(id, { x: targetX, y: targetY });
+      });
+    }
+
+    // D. 摆放衍生图：错落摆放在创作窗口的右半侧及右上方、右下方四周 (角度从 -50° 到 +50°)
+    const totalGens = genIds.length;
+    if (totalGens > 0) {
+      genIds.forEach((id, idx) => {
+        const orbitLayer = Math.floor(idx / 4);
+        const idxInLayer = idx % 4;
+        const countInLayer = Math.min(4, totalGens - orbitLayer * 4);
+        const rx = (baseRx - 20) + orbitLayer * 340;
+        const ry = (baseRy - 10) + orbitLayer * 290;
+
+        // 弧度分布：-50°(-0.28π) 到 +50°(0.28π) 错落有致
+        const angleStart = -Math.PI * 0.28;
+        const angleEnd = Math.PI * 0.28;
+        const angle = countInLayer === 1 
+          ? 0 
+          : angleStart + (angleEnd - angleStart) * (idxInLayer / (countInLayer - 1));
+
+        const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
+        const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
+        targetsMap.set(id, { x: targetX, y: targetY });
+      });
+    }
+  });
+
+  // 3. 处理剩余未绑定的自由节点，均匀摆放在活跃创作窗口的外侧四周空槽位
+  const unassignedNodes = allNodes.filter(n => !assignedNodeIds.has(n.id));
+  if (unassignedNodes.length > 0) {
+    const activeWin = activeConfigNode.value || creationWindows.value[0];
+    const targetWinMove = winMoveList.find(m => m.node.id === activeWin.id) || winMoveList[0];
+    const el = winEls.get(activeWin.id);
+    const winW = el?.offsetWidth || 440;
+    const winH = el?.offsetHeight || 360;
+    const winCenterX = targetWinMove.targetX + winW / 2;
+    const winCenterY = targetWinMove.targetY + winH / 2;
+
+    const freeRx = 520;
+    const freeRy = 480;
+    unassignedNodes.forEach((node, idx) => {
+      // 摆放在偏上方或下方轨道
+      const angle = (idx % 2 === 0 ? -1 : 1) * (Math.PI * 0.5 + (idx * 0.32));
+      const targetX = Math.round(winCenterX + freeRx * Math.cos(angle) - CARD_WIDTH / 2);
+      const targetY = Math.round(winCenterY + freeRy * Math.sin(angle) - CARD_HEIGHT / 2);
+      targetsMap.set(node.id, { x: targetX, y: targetY });
+    });
+  }
+
+  // 4. 构建全部节点的平滑移动任务列表
+  const moveList = [...winMoveList];
 
   allNodes.forEach(n => {
     const target = targetsMap.get(n.id);
@@ -1543,26 +1849,28 @@ const autoOrganizeNodes = () => {
     }
   });
 
-  // 柔和启动 520ms 平滑多节点排版动画，并在动画完成后自适应镜头包围盒
+  // 5. 启动平滑排版位移动画，完成后自动运镜聚焦包围盒
   animateNodesSmooth(moveList, 520, () => {
-    fitNodesInView(moveList.map(m => ({ 
-      x: m.targetX, 
-      y: m.targetY, 
-      w: m.node === configNode ? configW : CARD_WIDTH, 
-      h: m.node === configNode ? configH : CARD_HEIGHT 
-    })));
+    fitNodesInView(moveList.map(m => {
+      const isWin = creationWindows.value.includes(m.node);
+      const el = isWin ? winEls.get(m.node.id) : null;
+      return { 
+        x: m.targetX, 
+        y: m.targetY, 
+        w: isWin ? (el?.offsetWidth || 440) : CARD_WIDTH, 
+        h: isWin ? (el?.offsetHeight || 360) : CARD_HEIGHT 
+      };
+    }));
   });
 
   emit('show-toast', { 
-    message: totalRefs > 4 
-      ? `已自适应为双列智能排布（单列4张上限生效），所有参考图均在视野内呈现` 
-      : '已按一列居中自动重排参考图', 
-    type: 'info' 
+    message: '已完成智能四周环绕排版！卡片自然散布于创作窗口四周，脉络连线清晰指示流向', 
+    type: 'success' 
   });
 };
 
-// 监听新的生成图片，推送到画布中呈现
-const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) => {
+// 监听新的生成图片，推送到画布中呈现 (支持定位到触发该生成的创作窗口)
+const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0, windowId = null) => {
   let parents = [];
   if (Array.isArray(parentIds)) {
     parents = parentIds;
@@ -1574,21 +1882,26 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) =>
     parents = [record.parentId];
   }
 
-  let targetX = configNode.x + (configRealWidth.value || 440) + 70;
-  let targetY = configNode.y;
+  // 找到对应的创作窗口
+  const sourceWin = (windowId && creationWindows.value.find(w => w.id === windowId)) || activeConfigNode.value || creationWindows.value[0];
+  const el = sourceWin ? winEls.get(sourceWin.id) : null;
+  const winW = el?.offsetWidth || 440;
+
+  let targetX = (sourceWin ? sourceWin.x : 100) + winW + 70;
+  let targetY = (sourceWin ? sourceWin.y : 100);
 
   if (parents.length > 0) {
     const parentNodes = imageNodes.value.filter(n => parents.includes(n.id));
     if (parentNodes.length > 0) {
       const maxX = Math.max(...parentNodes.map(p => p.x + (p.width || 280)));
-      targetX = maxX + 120;
+      targetX = maxX + 100;
       const avgY = Math.round(parentNodes.reduce((sum, p) => sum + p.y, 0) / parentNodes.length);
       targetY = avgY;
     }
   }
 
-  const existingCount = imageNodes.value.filter(n => Math.abs(n.x - targetX) < 80).length;
-  targetY += existingCount * 120 + (offsetIndex * 35);
+  const existingCount = imageNodes.value.filter(n => Math.abs(n.x - targetX) < 80 && Math.abs(n.y - targetY) < 80).length;
+  targetY += existingCount * 110 + (offsetIndex * 35);
   targetX += (offsetIndex * 25);
 
   const newNode = {
@@ -1607,6 +1920,7 @@ const addGeneratedImageToCanvas = (record, parentIds = null, offsetIndex = 0) =>
     sourcePrompt: record.prompt,
     sourceModel: record.model,
     sourceRatio: record.ratio || '1:1',
+    sourceWindowId: sourceWin ? sourceWin.id : null,
     generatedAt: new Date().toLocaleTimeString()
   };
 
@@ -1743,6 +2057,7 @@ const batchAddGalleryItemsToCanvas = (items) => {
 
 defineExpose({
   addGeneratedImageToCanvas,
+  finishWindowGenerate,
   loadExternalImageToCanvas,
   addGalleryItemAsReference,
   addGalleryItemToCanvas,
@@ -1818,6 +2133,22 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+/* 性能极致优化：拖动画布漫游时，彻底消除重绘卡顿与掉帧 */
+.canvas-viewport.panning .canvas-world {
+  pointer-events: none !important;
+}
+
+.canvas-viewport.panning .canvas-node {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: none !important;
+  will-change: transform;
+}
+
+.canvas-viewport.panning .connections-layer path {
+  animation: none !important;
+}
+
 .canvas-viewport.pointer-mode {
   cursor: default;
 }
@@ -1829,20 +2160,20 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   transform-origin: 0 0;
+  will-change: transform;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 无界网格点阵背景 (日夜自适应) */
+/* 视口网格点阵背景 (优化：仅铺满 100% 视口，消除 20000x20000 巨幅重绘) */
 .canvas-grid-bg {
   position: absolute;
-  top: -10000px;
-  left: -10000px;
-  width: 20000px;
-  height: 20000px;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   background-image: radial-gradient(var(--canvas-grid-dot) 1.2px, transparent 1.2px);
-  transition: background-image 0.35s ease;
 }
 
 /* 贝塞尔连线层 */
@@ -3045,5 +3376,60 @@ onUnmounted(() => {
 
 .zoom-value:hover {
   background: var(--bg-subtle-hover);
+}
+
+/* 多创作窗口支持样式 */
+.is-active-window {
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 2px var(--accent-glow), var(--shadow-lg) !important;
+}
+
+.active-win-tag {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  background: var(--accent-indigo-bg);
+  color: var(--primary-color);
+  border-radius: var(--radius-micro);
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.win-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+}
+
+.win-close-btn:hover {
+  background: var(--accent-coral-bg);
+  color: var(--color-error);
+}
+
+.add-win-dock-btn {
+  width: auto !important;
+  padding: 0 10px;
+  gap: 5px;
+  background: var(--primary-gradient);
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.add-win-dock-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.dock-btn-label {
+  font-size: 0.74rem;
+  white-space: nowrap;
 }
 </style>

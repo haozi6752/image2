@@ -213,7 +213,133 @@
               </div>
             </div>
 
-            <!-- 模块 3：服务端代理开关 (极简无框条目行) -->
+            <!-- 模块 3：生图模型配置 (支持一键读取远端可用模型列表与下拉选择) -->
+            <div class="form-section-block">
+              <div class="section-title-row">
+                <h4 class="section-title">生图模型配置</h4>
+                <button 
+                  class="fetch-models-btn" 
+                  type="button" 
+                  :disabled="isFetchingModels || !currentProfile.baseURL || !currentProfile.apiKey"
+                  @click="fetchModelsFromApi"
+                  title="向服务商接口读取模型列表"
+                >
+                  <span v-if="isFetchingModels" class="mini-spinner"></span>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  <span>{{ isFetchingModels ? '正在读取...' : '获取模型列表' }}</span>
+                </button>
+              </div>
+
+              <div class="form-group">
+                <div class="label-with-action">
+                  <label for="profileModel">当前模型 (Model ID)</label>
+                  <span v-if="fetchedModelsList.length > 0" class="models-badge">已识别 {{ fetchedModelsList.length }} 个模型</span>
+                </div>
+                
+                <div class="model-picker-wrapper" ref="modelPickerRef">
+                  <div class="model-input-row">
+                    <input 
+                      id="profileModel" 
+                      type="text" 
+                      v-model="currentProfile.model" 
+                      placeholder="例如: gpt-image-2.5-flare, dall-e-3 等" 
+                      class="form-input"
+                      @focus="fetchedModelsList.length > 0 ? isModelDropdownOpen = true : null"
+                    />
+                    <button 
+                      v-if="fetchedModelsList.length > 0"
+                      type="button" 
+                      class="model-dropdown-trigger-btn"
+                      :class="{ 'open': isModelDropdownOpen }"
+                      @click="isModelDropdownOpen = !isModelDropdownOpen"
+                      title="展开/收起模型选择菜单"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                  </div>
+
+                  <!-- 下拉可选择菜单 (带快速搜索) -->
+                  <Transition name="dropdown-pop">
+                    <div v-if="isModelDropdownOpen && fetchedModelsList.length > 0" class="models-dropdown-menu glass-panel" @click.stop>
+                      <div class="dropdown-search-box">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input 
+                          v-model="modelSearchQuery" 
+                          type="text" 
+                          placeholder="搜索模型名称 (如: image, dall)..." 
+                          class="dropdown-search-input"
+                        />
+                        <button v-if="modelSearchQuery" class="clear-search-btn" @click="modelSearchQuery = ''">×</button>
+                      </div>
+
+                      <div class="models-scroll-list">
+                        <div 
+                          v-for="mId in filteredModelList" 
+                          :key="mId"
+                          class="model-option-item"
+                          :class="{ 'selected': currentProfile.model === mId }"
+                          @click="selectModelItem(mId)"
+                        >
+                          <div class="model-option-left">
+                            <span class="model-dot" :class="{ 'is-image': isImageModel(mId) }"></span>
+                            <span class="model-id-text">{{ mId }}</span>
+                          </div>
+                          <span v-if="isImageModel(mId)" class="image-tag">生图</span>
+                          <svg v-if="currentProfile.model === mId" class="check-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        </div>
+                        <div v-if="filteredModelList.length === 0" class="no-models-tip">
+                          未搜索到匹配的模型
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+                <span class="input-desc">
+                  填写完 URL 和 Key 后点击上方“获取模型列表”，即可从下拉菜单中快速点选，也支持手动微调。
+                </span>
+              </div>
+            </div>
+
+            <!-- 模块 4：图片存储与本地缓存策略 -->
+            <div class="form-section-block">
+              <h4 class="section-title">画作存储与本地缓存策略</h4>
+              <div class="storage-mode-cards">
+                <div 
+                  class="storage-card" 
+                  :class="{ 'active': storageMode === 'local' }"
+                  @click="updateStorageMode('local')"
+                >
+                  <div class="card-radio-indicator"></div>
+                  <div class="card-text-col">
+                    <span class="card-title">💾 本地持久缓存</span>
+                    <span class="card-desc">在浏览器 IndexedDB 完整保存高清图 Blob，离线秒开，占用本地磁盘。</span>
+                  </div>
+                </div>
+                <div 
+                  class="storage-card" 
+                  :class="{ 'active': storageMode === 'cloud' }"
+                  @click="updateStorageMode('cloud')"
+                >
+                  <div class="card-radio-indicator"></div>
+                  <div class="card-text-col">
+                    <span class="card-title">☁️ 纯网络云端模式 (推荐)</span>
+                    <span class="card-desc">0 本地大图占用！只保留画作元数据，图片经网络加载与下载，彻底释放 C 盘。</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="storage-clear-row">
+                <div class="storage-info-left">
+                  <span class="storage-label">本地 IndexedDB 已占用空间：</span>
+                  <span class="storage-val">{{ storageEstimate.usageMB }} MB</span>
+                </div>
+                <button class="clear-blobs-btn" type="button" @click="handleClearLocalBlobs" title="清理已缓存的本地大图 Blob，历史画作信息保持完整">
+                  🗑️ 清理本地大图缓存
+                </button>
+              </div>
+            </div>
+
+            <!-- 模块 5：服务端代理开关 (极简无框条目行) -->
             <div class="form-section-block">
               <h4 class="section-title">网络高级设置</h4>
               <div 
@@ -230,7 +356,7 @@
                     </span>
                   </div>
                   <span class="proxy-desc">
-                    有效规避浏览器调用第三方 API 时的 CORS 跨域限制，保障多图融合流畅稳定。
+                    有效规避浏览器调用第三方 API 时的 CORS 跨域限制，保障多图融合与模型获取流畅稳定。
                   </span>
                 </div>
                 <div class="glass-switch" :class="{ 'checked': currentProfile.useProxy }">
@@ -258,7 +384,8 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { isCloudStorageMode, clearCachedImageBlobs, getStorageUsageInfo } from '../utils/db';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -266,13 +393,182 @@ const props = defineProps({
   activeProfileId: String
 });
 
-const emit = defineEmits(['close', 'save']);
+const emit = defineEmits(['close', 'save', 'show-toast']);
 
 const tempProfiles = ref([]);
 const selectedProfileId = ref('');
 const showKey = ref(false);
 const searchQuery = ref('');
 const collapsedGroups = ref({});
+
+// 模型获取与选择状态
+const isFetchingModels = ref(false);
+const fetchedModelsList = ref([]);
+const isModelDropdownOpen = ref(false);
+const modelSearchQuery = ref('');
+const modelPickerRef = ref(null);
+
+// 本地与云端存储策略状态
+const storageMode = ref(localStorage.getItem('image_storage_mode') || 'local');
+const storageEstimate = ref({ usageMB: '0', quotaMB: '0' });
+
+// 刷新存储空间信息
+const refreshStorageInfo = async () => {
+  storageEstimate.value = await getStorageUsageInfo();
+};
+
+// 切换存储模式
+const updateStorageMode = (mode) => {
+  storageMode.value = mode;
+  localStorage.setItem('image_storage_mode', mode);
+  refreshStorageInfo();
+};
+
+// 清理本地大图 Blob 缓存
+const handleClearLocalBlobs = async () => {
+  const success = await clearCachedImageBlobs();
+  if (success) {
+    alert('已成功清空本地大图缓存！已释放磁盘存储空间，画廊记录与历史提示词完整保留。');
+    refreshStorageInfo();
+  }
+};
+
+// 过滤模型列表
+const filteredModelList = computed(() => {
+  const q = modelSearchQuery.value.trim().toLowerCase();
+  if (!q) return fetchedModelsList.value;
+  return fetchedModelsList.value.filter(m => m.toLowerCase().includes(q));
+});
+
+// 判断是否为生图相关模型
+const isImageModel = (modelId) => {
+  const str = String(modelId || '').toLowerCase();
+  return ['image', 'dall', 'flux', 'sd', 'stable-diffusion', 'mj', 'midjourney', 'draw', 'paint'].some(k => str.includes(k));
+};
+
+// 选择模型项
+const selectModelItem = (modelId) => {
+  if (currentProfile.value) {
+    currentProfile.value.model = modelId;
+  }
+  isModelDropdownOpen.value = false;
+};
+
+// 从服务端或远端 API 获取可用模型列表
+const fetchModelsFromApi = async () => {
+  if (!currentProfile.value) return;
+  const baseURL = (currentProfile.value.baseURL || '').trim();
+  const apiKey = (currentProfile.value.apiKey || '').trim();
+  const useProxy = currentProfile.value.useProxy;
+
+  if (!baseURL) {
+    alert('请先输入 API 基础路径 (Base URL)');
+    return;
+  }
+  if (!apiKey) {
+    alert('请先输入 API 密钥 (API Key)');
+    return;
+  }
+
+  isFetchingModels.value = true;
+  try {
+    let data;
+    if (useProxy) {
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'models',
+          baseURL: baseURL,
+          apiKey: apiKey
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `HTTP ${res.status}`);
+      }
+      data = await res.json();
+    } else {
+      const clean = baseURL.replace(/\/+$/, '');
+      let modelsURL = clean;
+      if (clean.endsWith('/models')) {
+        modelsURL = clean;
+      } else if (clean.endsWith('/v1')) {
+        modelsURL = `${clean}/models`;
+      } else if (clean.includes('/images/')) {
+        modelsURL = clean.replace(/\/images\/.*$/, '/models');
+      } else {
+        modelsURL = `${clean}/v1/models`;
+      }
+
+      const res = await fetch(modelsURL, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+
+      if (!res.ok) {
+        throw new Error(`服务商返回状态码: ${res.status}`);
+      }
+      data = await res.json();
+    }
+
+    let list = [];
+    if (Array.isArray(data)) {
+      list = data;
+    } else if (Array.isArray(data?.data)) {
+      list = data.data;
+    } else if (Array.isArray(data?.models)) {
+      list = data.models;
+    }
+
+    const ids = list
+      .map(item => (typeof item === 'string' ? item : item?.id || item?.name))
+      .filter(Boolean);
+
+    if (ids.length === 0) {
+      throw new Error('未获取到模型数据，可能服务商不支持 /models 端点');
+    }
+
+    // 智能排序：图像模型排在最前
+    ids.sort((a, b) => {
+      const aImg = isImageModel(a);
+      const bImg = isImageModel(b);
+      if (aImg && !bImg) return -1;
+      if (!aImg && bImg) return 1;
+      return a.localeCompare(b);
+    });
+
+    fetchedModelsList.value = ids;
+    isModelDropdownOpen.value = true;
+    
+    // 如果当前没有填写 model，或者现有 model 不在列表中且识别到生图模型，自动推选第一个生图模型
+    if (!currentProfile.value.model && ids.length > 0) {
+      currentProfile.value.model = ids[0];
+    }
+  } catch (err) {
+    console.error('Fetch models error:', err);
+    alert(`获取模型失败: ${err.message}。若是跨域问题，建议开启下方的“通过 Vercel 服务端代理请求”。`);
+  } finally {
+    isFetchingModels.value = false;
+  }
+};
+
+// 全局监听点击外部收起模型下拉菜单
+const handleModelClickOutside = (e) => {
+  if (isModelDropdownOpen.value && modelPickerRef.value && !modelPickerRef.value.contains(e.target)) {
+    isModelDropdownOpen.value = false;
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('click', handleModelClickOutside);
+  refreshStorageInfo();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleModelClickOutside);
+});
 
 // 当前选中的修改方案
 const currentProfile = computed(() => {
@@ -376,6 +672,10 @@ watch(() => props.isOpen, (newVal) => {
     showKey.value = false;
     searchQuery.value = '';
     collapsedGroups.value = {};
+    isModelDropdownOpen.value = false;
+    modelSearchQuery.value = '';
+    storageMode.value = localStorage.getItem('image_storage_mode') || 'local';
+    refreshStorageInfo();
     if (props.profiles && props.profiles.length > 0) {
       tempProfiles.value = JSON.parse(JSON.stringify(props.profiles)).map(item => {
         if (!item.provider) {
@@ -1231,5 +1531,335 @@ label {
 .btn-primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px var(--accent-glow);
+}
+
+/* 标题栏操作行 */
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 获取模型按钮 */
+.fetch-models-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: var(--primary-color);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fetch-models-btn:hover:not(:disabled) {
+  background: var(--primary-color);
+  color: #ffffff;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+.fetch-models-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mini-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.models-badge {
+  font-size: 0.68rem;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald, #10b981);
+  font-weight: 600;
+}
+
+/* 模型选择器组合容器 */
+.model-picker-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.model-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.model-dropdown-trigger-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.model-dropdown-trigger-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.model-dropdown-trigger-btn.open svg {
+  transform: rotate(180deg);
+}
+
+/* 浮动下拉模型列表菜单 */
+.models-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  background: var(--bg-surface-elevated, rgba(20, 24, 38, 0.96));
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid var(--border-focus);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdown-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-divider);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.dropdown-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.models-scroll-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 200px;
+  padding: 4px;
+}
+
+.model-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.model-option-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.model-option-item.selected {
+  background: rgba(139, 92, 246, 0.16);
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.model-option-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.model-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.model-dot.is-image {
+  background: var(--accent-emerald, #10b981);
+  box-shadow: 0 0 5px rgba(16, 185, 129, 0.6);
+}
+
+.model-id-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-tag {
+  font-size: 0.62rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald, #10b981);
+  font-weight: 600;
+  margin-left: auto;
+  margin-right: 6px;
+}
+
+.check-icon {
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.no-models-tip {
+  padding: 12px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* 存储模式选择卡片 */
+.storage-mode-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.storage-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="light"] .storage-card {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.storage-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-focus);
+}
+
+.storage-card.active {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: var(--primary-color);
+}
+
+.card-radio-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  margin-top: 2px;
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.storage-card.active .card-radio-indicator {
+  border-color: var(--primary-color);
+}
+
+.storage-card.active .card-radio-indicator::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: 50%;
+  background: var(--primary-color);
+}
+
+.card-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-desc {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* 本地大图缓存清理行 */
+.storage-clear-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px dashed var(--border-divider);
+}
+
+:root[data-theme="light"] .storage-clear-row {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.storage-info-left {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.storage-val {
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.clear-blobs-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: var(--color-error);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-blobs-btn:hover {
+  background: var(--color-error);
+  color: #ffffff;
 }
 </style>

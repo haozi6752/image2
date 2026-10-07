@@ -40,8 +40,18 @@ export const initDB = () => {
   return dbPromise;
 };
 
+// 检查当前是否为“纯网络云端模式 (0 本地大图占用)”
+export const isCloudStorageMode = () => {
+  return localStorage.getItem('image_storage_mode') === 'cloud';
+};
+
 // 缓存单张图片（支持 Blob 或 Base64 存储）
 export const cacheImage = async (id, url) => {
+  // 如果用户开启了“纯网络云端模式”，彻底不将大图缓存至本地 IndexedDB，零占用本地硬盘空间
+  if (isCloudStorageMode()) {
+    return true;
+  }
+
   try {
     const db = await initDB();
     let dataToStore = null;
@@ -68,6 +78,34 @@ export const cacheImage = async (id, url) => {
     console.warn(`无法离线缓存图片 (id: ${id}), 使用原 URL:`, err);
     return false;
   }
+};
+
+// 仅清空已缓存的本地大图二进制数据，立即释放大量 C 盘空间，而历史记录/提示词仍完整保留
+export const clearCachedImageBlobs = async () => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction([STORE_IMAGES], 'readwrite');
+      tx.objectStore(STORE_IMAGES).clear();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch (err) {
+    return false;
+  }
+};
+
+// 获取浏览器本地存储估算信息
+export const getStorageUsageInfo = async () => {
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const { quota, usage } = await navigator.storage.estimate();
+      const usageMB = (usage / (1024 * 1024)).toFixed(1);
+      const quotaMB = (quota / (1024 * 1024)).toFixed(0);
+      return { usageMB, quotaMB };
+    }
+  } catch (e) {}
+  return { usageMB: '0', quotaMB: '0' };
 };
 
 // 获取缓存图片的本地访问链接

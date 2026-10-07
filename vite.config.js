@@ -15,12 +15,56 @@ const localProxyPlugin = () => ({
         req.on('end', async () => {
           try {
             const body = JSON.parse(bodyStr || '{}');
-            const { baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64, imagesB64 } = body;
+            const { action, baseURL, apiKey, model, prompt, size, quality, output_format, output_compression, imageB64, imagesB64 } = body;
 
-            if (!baseURL || !apiKey || !prompt) {
+            if (!baseURL || !apiKey) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ error: { message: '缺少必要参数 (baseURL, apiKey 或 prompt)' } }));
+              res.end(JSON.stringify({ error: { message: '缺少必要参数 (baseURL 或 apiKey)' } }));
+              return;
+            }
+
+            // 处理模型列表查询
+            if (action === 'models') {
+              const cleanBase = baseURL.replace(/\/$/, '');
+              let modelsURL = cleanBase;
+              if (cleanBase.endsWith('/models')) {
+                modelsURL = cleanBase;
+              } else if (cleanBase.endsWith('/v1')) {
+                modelsURL = `${cleanBase}/models`;
+              } else if (cleanBase.includes('/images/')) {
+                modelsURL = cleanBase.replace(/\/images\/.*$/, '/models');
+              } else {
+                modelsURL = `${cleanBase}/v1/models`;
+              }
+
+              console.log(`[Local Proxy] 获取模型列表 -> ${modelsURL}`);
+              const modelRes = await fetch(modelsURL, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`
+                }
+              });
+
+              const modelStatus = modelRes.status;
+              const modelContentType = modelRes.headers.get('content-type') || '';
+              res.statusCode = modelStatus;
+              res.setHeader('Content-Type', modelContentType.includes('application/json') ? 'application/json' : 'text/plain');
+
+              if (modelContentType.includes('application/json')) {
+                const data = await modelRes.json();
+                res.end(JSON.stringify(data));
+              } else {
+                const text = await modelRes.text();
+                res.end(text);
+              }
+              return;
+            }
+
+            if (!prompt) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: { message: '缺少必要参数 (prompt)' } }));
               return;
             }
 

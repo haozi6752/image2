@@ -22,10 +22,43 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { baseURL, apiKey, model, prompt, n, size, quality, background, output_format, output_compression, imageB64, imagesB64 } = req.body;
+  const { action, baseURL, apiKey, model, prompt, n, size, quality, background, output_format, output_compression, imageB64, imagesB64 } = req.body;
 
-  if (!baseURL || !apiKey || !prompt) {
-    res.status(400).json({ error: { message: '缺少必要参数 (baseURL, apiKey 或 prompt)' } });
+  if (!baseURL || !apiKey) {
+    res.status(400).json({ error: { message: '缺少必要参数 (baseURL 或 apiKey)' } });
+    return;
+  }
+
+  // 1. 处理获取模型列表
+  if (action === 'models') {
+    const cleanBase = baseURL.replace(/\/$/, '');
+    let modelsURL = cleanBase;
+    if (cleanBase.endsWith('/models')) {
+      modelsURL = cleanBase;
+    } else if (cleanBase.endsWith('/v1')) {
+      modelsURL = `${cleanBase}/models`;
+    } else if (cleanBase.includes('/images/')) {
+      modelsURL = cleanBase.replace(/\/images\/.*$/, '/models');
+    } else {
+      modelsURL = `${cleanBase}/v1/models`;
+    }
+
+    try {
+      const response = await fetch(modelsURL, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const data = await response.json();
+      res.status(response.status).json(data);
+      return;
+    } catch (err) {
+      res.status(500).json({ error: { message: `代理获取模型列表失败: ${err.message}` } });
+      return;
+    }
+  }
+
+  if (!prompt) {
+    res.status(400).json({ error: { message: '缺少必要参数 (prompt)' } });
     return;
   }
 

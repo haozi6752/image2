@@ -394,24 +394,28 @@ const formatTime = (timestamp) => {
   width: 100%;
   height: 100%;
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px 24px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 16px;
+  scroll-behavior: smooth;
 }
 
-/* 顶部工具栏 - 纯净悬浮毛玻璃 (去除边框与胶囊形) */
+/* 顶部工具栏 - 固定悬浮毛玻璃 (向下滑动时始终吸顶常驻，随时可点击多选等操作) */
 .gallery-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 22px;
-  border-radius: 14px;
-  background: var(--bg-surface-elevated, rgba(20, 22, 32, 0.88));
+  padding: 10px 20px;
+  border-radius: 12px;
+  background: var(--bg-surface-elevated, rgba(16, 18, 28, 0.88));
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: none !important;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-divider) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
