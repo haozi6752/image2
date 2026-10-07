@@ -2,16 +2,22 @@
   <div 
     class="canvas-viewport" 
     ref="viewportRef"
+    @mousedown.capture="onViewportMouseDownCapture"
     @mousedown="onViewportMouseDown"
     @wheel="onWheel"
-    :class="{ 'panning': isPanning, 'pointer-mode': toolMode === 'pointer' }"
+    :class="{ 
+      'panning': isPanning, 
+      'pointer-mode': toolMode === 'pointer',
+      'space-panning-ready': isSpacePressed && !isPanning
+    }"
   >
     <!-- 背景网格坐标层 (优化：仅铺满 100% 视口，消除 20000x20000 的巨型图层重绘卡顿) -->
-    <div class="canvas-grid-bg" :style="gridBackgroundStyle"></div>
+    <div class="canvas-grid-bg" ref="gridEl" :style="gridBackgroundStyle"></div>
 
     <!-- 无限画布转换容器 -->
     <div 
       class="canvas-world" 
+      ref="worldEl"
       :style="worldTransformStyle"
     >
       <!-- 贝塞尔连线 SVG 层 -->
@@ -144,7 +150,7 @@
                   class="ref-thumbnail-card"
                   :title="`参考图 [Image ${idx + 1}]`"
                 >
-                  <img :src="img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" />
+                  <img :src="img.url" :alt="`Image ${idx + 1}`" class="ref-thumb-img" decoding="async" loading="lazy" />
                   <span class="ref-order-tag">Image {{ idx + 1 }}</span>
                   <button class="remove-ref-btn" @click.stop="removeWindowRefImage(win, idx)" title="移除此参考图">
                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -244,7 +250,8 @@
             'selected': selectedNodeId === node.id, 
             'recent-node': node.isRecentGenerated,
             'is-dragging': draggingNode === node,
-            'is-referenced': isNodeInRefImages(node.id)
+            'is-referenced': isNodeInRefImages(node.id),
+            'has-active-popover': activePromptNodeId === node.id
           }"
           :style="{ transform: `translate(${Math.round(node.x)}px, ${Math.round(node.y)}px)`, width: `${node.width || 280}px` }"
           @mousedown.stop="startNodeDrag($event, node)"
@@ -277,7 +284,7 @@
             @dblclick.stop="$emit('preview', node)"
             title="双击图片放大预览"
           >
-            <img :src="node.url" :alt="node.prompt" class="img-preview" />
+            <img :src="node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" />
             
             <!-- 悬浮操作面板 -->
             <div class="img-hover-overlay" @mousedown.stop>
@@ -530,6 +537,8 @@ const props = defineProps({
 const emit = defineEmits(['generate', 'preview', 'show-toast', 'update-settings']);
 
 const viewportRef = ref(null);
+const worldEl = ref(null);
+const gridEl = ref(null);
 
 // 画布视口平移与缩放
 const panX = ref(150);
@@ -537,8 +546,12 @@ const panY = ref(100);
 const scale = ref(0.9);
 const toolMode = ref('grab'); // 'grab' | 'pointer'
 const isPanning = ref(false);
+const isSpacePressed = ref(false);
 let startPanX = 0;
 let startPanY = 0;
+let currentPanX = 150;
+let currentPanY = 100;
+let panRafId = null;
 
 // 选中的节点与提示词气泡弹层状态
 const selectedNodeId = ref(null);
@@ -975,6 +988,10 @@ let pipeOrigY = 0;
 
 const startPipeDrag = (e, pipe) => {
   if (e.button !== 0) return;
+  if (isSpacePressed.value || toolMode.value === 'grab') {
+    startPanning(e);
+    return;
+  }
   draggingPipe = pipe;
   pipeDragStartX = e.clientX;
   pipeDragStartY = e.clientY;
@@ -1269,50 +1286,92 @@ const activeLinks = computed(() => {
   return links;
 });
 
-// 平移画布开始
-const onViewportMouseDown = (e) => {
+// 开始平移漫游
+const startPanning = (e) => {
+  if (viewportAnimId) {
+    cancelAnimationFrame(viewportAnimId);
+    viewportAnimId = null;
+  }
+  isPanning.value = true;
+  currentPanX = panX.value;
+  currentPanY = panY.value;
+  startPanX = e.clientX - panX.value;
+  startPanY = e.clientY - panY.value;
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+};
+
+// 捕获阶段拦截：确保按住空格键漫游或中键拖动时，即使点击在卡片、覆盖层或按钮上也能统一触发画布漫游
+const onViewportMouseDownCapture = (e) => {
   const target = e.target;
-  // 如果点击的目标是输入框、可滚动区域或其交互控件，严禁触发画布漫游，保证正常的文字选择与滑动
-  if (
-    target &&
-    (target.tagName === 'TEXTAREA' ||
-      target.tagName === 'INPUT' ||
-      target.closest('textarea') ||
-      target.closest('.node-prompt-input') ||
-      target.closest('.ref-thumbnails-list'))
-  ) {
+  // 底部工具坞保持正常点击交互
+  if (target && target.closest('.floating-dock-wrapper')) {
+    return;
+  }
+  // 输入框、文本框等可编辑区域放行正常光标定位与选择
+  if (isEditableElement(target)) {
     return;
   }
 
-  // 如果当前有运镜动画在进行，用户主动点击立即取消动画
-  if (viewportAnimId) { cancelAnimationFrame(viewportAnimId); viewportAnimId = null; }
+  // 1. 鼠标中键按下 -> 触发全局平移漫游
+  if (e.button === 1) {
+    e.preventDefault();
+    e.stopPropagation();
+    startPanning(e);
+    return;
+  }
 
-  // 如果是鼠标中键或者当前为抓手模式，且不是右键
-  if (e.button === 1 || (e.button === 0 && toolMode.value === 'grab')) {
-    isPanning.value = true;
-    startPanX = e.clientX - panX.value;
-    startPanY = e.clientY - panY.value;
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+  // 2. 按住空格键 + 鼠标左键 -> 标准抓手漫游交互 (最高优先级，允许在任意卡片或覆盖层上顺畅拖动画布)
+  if (e.button === 0 && isSpacePressed.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    startPanning(e);
+    return;
+  }
+
+  // 3. 抓手模式下 + 鼠标左键 -> 画布平移
+  if (e.button === 0 && toolMode.value === 'grab') {
+    e.preventDefault();
+    e.stopPropagation();
+    startPanning(e);
+    return;
   }
 };
 
-// 性能调度器：利用 requestAnimationFrame 节流鼠标高频位移，保证 60/120fps 丝滑响应且不浪费 CPU
+// 平移画布开始 (冒泡兜底)
+const onViewportMouseDown = (e) => {
+  const target = e.target;
+  if (target && (target.closest('.floating-dock-wrapper') || isEditableElement(target))) {
+    return;
+  }
+
+  if (e.button === 1 || (e.button === 0 && (toolMode.value === 'grab' || isSpacePressed.value))) {
+    startPanning(e);
+  }
+};
+
+// 拖动画布 DOM 直出硬件加速 (直接通过 DOM 引用在 rAF 中更新，彻底绕过 Vue 3 响应式 Tick 与全量 VNode Diff)
+const renderPanDirect = () => {
+  panRafId = null;
+  if (worldEl.value) {
+    worldEl.value.style.transform = `translate3d(${currentPanX}px, ${currentPanY}px, 0) scale(${scale.value})`;
+  }
+  if (gridEl.value) {
+    const gridSize = 32 * scale.value;
+    const offsetX = Math.round(((currentPanX % gridSize) + gridSize) % gridSize);
+    const offsetY = Math.round(((currentPanY % gridSize) + gridSize) % gridSize);
+    gridEl.value.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
+  }
+};
+
+// 性能调度器：利用 requestAnimationFrame 节流卡片拖拽高频位移
 let dragRafId = null;
-let pendingPanX = null;
-let pendingPanY = null;
 let pendingNode = null;
 let pendingNodeX = null;
 let pendingNodeY = null;
 
 const flushMouseDrag = () => {
   dragRafId = null;
-  if (pendingPanX !== null && pendingPanY !== null) {
-    panX.value = pendingPanX;
-    panY.value = pendingPanY;
-    pendingPanX = null;
-    pendingPanY = null;
-  }
   if (pendingNode && pendingNodeX !== null && pendingNodeY !== null) {
     pendingNode.x = pendingNodeX;
     pendingNode.y = pendingNodeY;
@@ -1324,10 +1383,10 @@ const flushMouseDrag = () => {
 
 const onMouseMove = (e) => {
   if (isPanning.value) {
-    pendingPanX = Math.round(e.clientX - startPanX);
-    pendingPanY = Math.round(e.clientY - startPanY);
-    if (!dragRafId) {
-      dragRafId = requestAnimationFrame(flushMouseDrag);
+    currentPanX = Math.round(e.clientX - startPanX);
+    currentPanY = Math.round(e.clientY - startPanY);
+    if (!panRafId) {
+      panRafId = requestAnimationFrame(renderPanDirect);
     }
   } else if (draggingNode) {
     const dx = (e.clientX - dragStartX) / scale.value;
@@ -1342,19 +1401,71 @@ const onMouseMove = (e) => {
 };
 
 const onMouseUp = () => {
+  if (panRafId) {
+    cancelAnimationFrame(panRafId);
+    panRafId = null;
+  }
   if (dragRafId) {
     cancelAnimationFrame(dragRafId);
     dragRafId = null;
   }
-  flushMouseDrag();
-  isPanning.value = false;
-  draggingNode = null;
+  if (isPanning.value) {
+    isPanning.value = false;
+    // 手势结束立即将最终坐标刷新到 DOM，避免依赖下一帧微任务的视觉掉帧或停顿
+    renderPanDirect();
+    panX.value = currentPanX;
+    panY.value = currentPanY;
+  }
+  if (draggingNode) {
+    flushMouseDrag();
+    draggingNode = null;
+  }
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('mouseup', onMouseUp);
 };
 
+// Space 漫游按键交互检测
+const isEditableElement = (el) => {
+  if (!el) return false;
+  const tagName = el.tagName;
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  if (el.closest && el.closest('input, textarea, select, [contenteditable="true"], .node-prompt-input, .prompt-textarea')) {
+    return true;
+  }
+  return false;
+};
+
+const onKeyDown = (e) => {
+  if (e.code === 'Space' || e.key === ' ') {
+    if (isEditableElement(e.target) || isEditableElement(document.activeElement)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (!e.repeat) {
+      isSpacePressed.value = true;
+    }
+  }
+};
+
+const onKeyUp = (e) => {
+  if (e.code === 'Space' || e.key === ' ') {
+    isSpacePressed.value = false;
+  }
+};
+
+const onWindowBlur = () => {
+  isSpacePressed.value = false;
+  if (isPanning.value || draggingNode) {
+    onMouseUp();
+  }
+  if (draggingPipe) {
+    onPipeMouseUp();
+  }
+};
+
 // 滚轮缩放控制
 const onWheel = (e) => {
+  if (isPanning.value) return; // 平移漫游中阻止滚轮缩放竞争坐标
   const target = e.target;
   // 防御性隔离：如果在输入框、下拉框或局部滚动区域滚动，放行原生滚动，坚决不劫持画布缩放
   if (
@@ -1391,6 +1502,10 @@ const onWheel = (e) => {
 // 节点拖拽
 const startNodeDrag = (e, node) => {
   if (e.button !== 0) return;
+  if (isSpacePressed.value || toolMode.value === 'grab') {
+    startPanning(e);
+    return;
+  }
   const target = e.target;
   // 如果点击的目标是输入框、按钮或交互组件，不要触发节点整体拖拽，保证光标选取与拖拽滚动
   if (
@@ -2363,6 +2478,10 @@ let configResizeObserver = null;
 
 // 初始化时如果历史记录中有图片，自动加载最新的几张到画布供用户直接把玩
 onMounted(() => {
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onWindowBlur);
+
   // 监听创作中心实际 DOM 尺寸变化，保证连线永远贴紧真实边缘
   if (configNodeEl.value) {
     configRealWidth.value = configNodeEl.value.offsetWidth || 440;
@@ -2398,9 +2517,21 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('keyup', onKeyUp);
+  window.removeEventListener('blur', onWindowBlur);
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
+  window.removeEventListener('mousemove', onPipeMouseMove);
+  window.removeEventListener('mouseup', onPipeMouseUp);
+
   if (configResizeObserver) {
     configResizeObserver.disconnect();
     configResizeObserver = null;
+  }
+  if (panRafId) {
+    cancelAnimationFrame(panRafId);
+    panRafId = null;
   }
   if (dragRafId) {
     cancelAnimationFrame(dragRafId);
@@ -2428,9 +2559,64 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* 性能极致优化：拖动画布漫游时阻止指针穿透 */
+.canvas-viewport.panning,
+.canvas-viewport.panning * {
+  cursor: grabbing !important;
+}
+
+/* 性能极致优化：拖动画布漫游时阻止指针穿透并开启 GPU 合成层 */
 .canvas-viewport.panning .canvas-world {
   pointer-events: none !important;
+  will-change: transform;
+}
+
+/* 1. 平移态 GPU 负载全局熔断 (CSS 降级策略) */
+.canvas-viewport.panning .canvas-node,
+.canvas-viewport.panning .glass-panel,
+.canvas-viewport.panning .config-node,
+.canvas-viewport.panning .node-prompt-callout,
+.canvas-viewport.panning .branch-heritage-tag {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(13, 18, 34, 0.94) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+  transition: none !important;
+}
+
+.canvas-viewport.panning .canvas-node *,
+.canvas-viewport.panning .glass-panel *,
+.canvas-viewport.panning .config-node *,
+.canvas-viewport.panning .node-prompt-callout *,
+.canvas-viewport.panning .branch-heritage-tag * {
+  transition: none !important;
+}
+
+:root[data-theme="light"] .canvas-viewport.panning .canvas-node,
+:root[data-theme="light"] .canvas-viewport.panning .glass-panel,
+:root[data-theme="light"] .canvas-viewport.panning .config-node,
+:root[data-theme="light"] .canvas-viewport.panning .node-prompt-callout,
+:root[data-theme="light"] .canvas-viewport.panning .branch-heritage-tag,
+.light-theme .canvas-viewport.panning .canvas-node,
+.light-theme .canvas-viewport.panning .glass-panel,
+.light-theme .canvas-viewport.panning .config-node,
+.light-theme .canvas-viewport.panning .node-prompt-callout,
+.light-theme .canvas-viewport.panning .branch-heritage-tag {
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+}
+
+.canvas-viewport.panning .connections-layer,
+.canvas-viewport.panning .connection-curve,
+.canvas-viewport.panning .connections-layer * {
+  animation-play-state: paused !important;
+  filter: none !important;
+  transition: none !important;
+}
+
+/* Space 键漫游就绪状态 (光标切换为抓手) */
+.canvas-viewport.space-panning-ready,
+.canvas-viewport.space-panning-ready * {
+  cursor: grab !important;
 }
 
 .canvas-viewport.pointer-mode {
@@ -3020,7 +3206,8 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* 2. 图像卡片节点 (圆润饱满 Bento) */
+/* 2. 图像卡片节点 (圆润饱满 Bento) 与现代浏览器原生视锥剔除 */
+.canvas-node.image-node,
 .image-node {
   padding: 12px;
   display: flex;
@@ -3028,6 +3215,17 @@ onUnmounted(() => {
   gap: 10px;
   position: absolute;
   border-radius: var(--radius-lg);
+  content-visibility: auto;
+  contain-intrinsic-size: 290px 380px;
+  contain: layout style paint;
+}
+
+/* 提示词气泡弹层展开或处于拖拽状态时解除 paint 裁剪与 visibility 限制，保证气泡完整向上展示且拖动不突兀剔除 */
+.canvas-node.image-node.has-active-popover,
+.canvas-node.image-node.is-dragging,
+.canvas-node.image-node:has(.node-prompt-callout) {
+  contain: layout style !important;
+  content-visibility: visible !important;
 }
 
 .img-node-header {
