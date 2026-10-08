@@ -265,11 +265,12 @@
           }"
           :style="{ transform: `translate(${Math.round(node.x)}px, ${Math.round(node.y)}px)`, width: `${node.width || 280}px` }"
           @mousedown.stop="startNodeDrag($event, node)"
+          @click="selectedNodeId = node.id"
           @mouseenter="hoveredNodeId = node.id"
           @mouseleave="hoveredNodeId = null"
         >
           <!-- 最新衍生成果横幅与独立按钮 (移除横幅级 mousedown.stop，允许横幅拖动卡片) -->
-          <div v-if="node.isRecentGenerated" class="recent-output-banner">
+          <div v-if="node.isRecentGenerated" class="recent-output-banner" @mousedown.stop="startNodeDrag($event, node)">
             <span class="recent-glow-dot"></span>
             <span class="recent-banner-title">最新衍生</span>
             <button 
@@ -283,8 +284,8 @@
             </button>
           </div>
 
-          <!-- 卡片头部 (右上角展示图片画面宽高比规格) -->
-          <div class="img-node-header">
+          <!-- 卡片头部 (右上角展示图片画面宽高比规格，作为主拖拽抓手) -->
+          <div class="img-node-header" @mousedown.stop="startNodeDrag($event, node)">
             <span class="img-node-tag">{{ node.model || 'GPT-Image' }}</span>
             <span class="img-node-ratio" title="图片宽高比规格 (如 1:1 正方形, 16:9 横屏, 9:16 竖屏)">{{ node.ratio || '1:1' }}</span>
           </div>
@@ -296,6 +297,7 @@
             draggable="false"
             @dragstart.prevent
             @dblclick.stop="$emit('preview', node)"
+            @mousedown.stop="startNodeDrag($event, node)"
             title="双击图片放大预览 · 左键长按可拖动卡片"
           >
             <img 
@@ -1932,10 +1934,14 @@ const startNodeDrag = (e, node) => {
     return;
   }
 
+  // 阻止浏览器原生选区与图片 HTML5 Drag 默认行为，确保高频 mousemove 持续可靠接收
+  e.preventDefault();
+
   if (nodeAnimId) { cancelAnimationFrame(nodeAnimId); nodeAnimId = null; }
   
-  // 左键点击立即高亮激活当前窗口 / 选中卡片
-  if (node.id && node.id.startsWith('config-center-')) {
+  // 左键点击立即高亮激活当前窗口 / 选中卡片 (类型安全：node.id 可能为数字或字符串)
+  const isConfigCenter = node && node.id != null && String(node.id).startsWith('config-center-');
+  if (isConfigCenter) {
     activeConfigId.value = node.id;
   } else {
     selectedNodeId.value = node.id;
@@ -3297,9 +3303,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg), var(--glow-shadow);
 }
 
-.canvas-node.selected {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-lg);
+.canvas-node.selected,
+.canvas-node.selected.is-referenced {
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 3.5px var(--accent-glow), 0 0 24px var(--accent-glow), var(--shadow-lg) !important;
+  z-index: 50;
 }
 
 /* 1. 生图主控制节点 (圆润饱满、高清晰度毛玻璃) */
@@ -3740,14 +3748,19 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  cursor: move;
-  padding: 2px 4px;
+  cursor: grab;
+  padding: 4px 6px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .img-node-tag {
   font-size: 0.7rem;
   color: var(--accent-indigo);
   font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
 .img-node-ratio {
@@ -3758,6 +3771,9 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-micro);
   color: var(--text-muted);
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
 .img-node-media {
