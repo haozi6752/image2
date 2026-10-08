@@ -5,9 +5,9 @@
     @mousedown.capture="onViewportMouseDownCapture"
     @mousedown="onViewportMouseDown"
     @wheel="onWheel"
+    @contextmenu="onContextMenu"
     :class="{ 
       'panning': isPanning, 
-      'pointer-mode': toolMode === 'pointer',
       'space-panning-ready': isSpacePressed && !isPanning
     }"
   >
@@ -451,92 +451,90 @@
       </div>
     </div>
 
-    <!-- 底部悬浮控制坞 (Floating Dock Toolbar，灵感源自图五) -->
+    <!-- 底部悬浮控制坞 (Floating Dock Toolbar - 现代化毛玻璃极简架构) -->
     <div class="floating-dock-wrapper" @mousedown.stop>
-      <div class="dock-panel glass-panel">
-        <!-- 模式切换：选择 vs 抓手 -->
-        <div class="dock-group">
-          <button 
-            class="dock-btn" 
-            :class="{ active: toolMode === 'grab' }" 
-            @click="toolMode = 'grab'"
-            title="抓手漫游 (按住空白拖动画布)"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg>
-          </button>
-          <button 
-            class="dock-btn" 
-            :class="{ active: toolMode === 'pointer' }" 
-            @click="toolMode = 'pointer'"
-            title="指针选择"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 3 10.07 19.97 12.58 12.58 19.97 10.07 3 3"></polygon></svg>
-          </button>
+      <div class="dock-panel modern-dock">
+        <!-- 1. 人性化快捷提示徽标 (无需切换模式，直观指引) -->
+        <div class="dock-hint-capsule" title="交互指引：长按鼠标右键拖动画布 · 左键选择/长按拖动卡片 · 滚轮缩放">
+          <svg class="hint-mouse-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="7"></rect>
+            <path d="M12 6v4"></path>
+          </svg>
+          <span class="hint-text">右键拖动画布 · 左键移动卡片</span>
         </div>
 
         <div class="dock-divider"></div>
 
-        <!-- 创作窗口添加与关闭控制 (多窗口并行生图与管理) -->
+        <!-- 2. 创作窗口管理组 -->
         <div class="dock-group window-control-group">
           <button 
-            class="dock-btn add-win-dock-btn" 
+            class="dock-action-btn add-window-btn" 
             @click="addCreationWindow" 
-            title="＋ 添加新创作窗口 (支持多窗口并行独立生图，不设数量上限)"
+            title="添加新创作窗口 (支持多窗口并行独立生图，不设数量上限)"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-            <span class="dock-btn-label">＋ 创作窗口</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="12" y1="8" x2="12" y2="16"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+            <span class="btn-text">创作窗口</span>
+            <span class="window-count-badge" v-if="creationWindows.length > 1">{{ creationWindows.length }}</span>
           </button>
+          
           <button 
             v-if="creationWindows.length > 1"
-            class="dock-btn remove-win-dock-btn" 
+            class="dock-icon-btn remove-window-btn" 
             @click="closeCreationWindow(activeConfigId)" 
             title="关闭当前获得焦点的创作窗口"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-            <span class="dock-btn-label">－ 关闭窗口</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
 
         <div class="dock-divider"></div>
 
-        <!-- 缩放控制栏 -->
-        <div class="dock-group zoom-group">
-          <button class="dock-btn" @click="zoomOut" title="缩小画布">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <!-- 3. 视口与缩放控制组 -->
+        <div class="dock-group zoom-control-group">
+          <button class="dock-icon-btn" @click="zoomOut" title="缩小画布">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </button>
-          <span class="zoom-value" @click="resetZoom" title="点击还原 100%">{{ Math.round(scale * 100) }}%</span>
-          <button class="dock-btn" @click="zoomIn" title="放大画布">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <button class="zoom-indicator-btn" @click="resetZoom" title="点击重置为 100%">
+            <span class="zoom-value-text">{{ Math.round(scale * 100) }}%</span>
+          </button>
+          <button class="dock-icon-btn" @click="zoomIn" title="放大画布">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+          <button class="dock-icon-btn" @click="fitView" title="重置视角并居中焦点窗口">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="3" r="3"></circle></svg>
           </button>
         </div>
 
         <div class="dock-divider"></div>
 
-        <!-- 视图与整理操作 -->
-        <div class="dock-group">
-          <!-- 连线渲染双模引擎切换 (Canvas 2D 硬件批量绘制 vs SVG 矢量) -->
+        <!-- 4. 排版整理、引擎与维护工具组 -->
+        <div class="dock-group tools-control-group">
+          <!-- 连线渲染双模引擎切换 (解决原版溢出重叠 Bug，重构为微型双态胶囊) -->
           <button 
-            class="dock-btn render-engine-dock-btn" 
-            :class="{ active: renderEngine === 'canvas' }" 
+            class="engine-toggle-btn" 
+            :class="renderEngine" 
             @click="toggleRenderEngine" 
-            :title="renderEngine === 'canvas' ? '连线引擎: Canvas 2D 硬件批量绘制 (超低开销满帧渲染，点击切换为 SVG)' : '连线引擎: SVG 矢量模式 (点击切换为 Canvas 2D)'"
+            :title="renderEngine === 'canvas' ? '连线引擎: Canvas 2D 硬件批量绘制 (超低开销满帧，点击切换为 SVG)' : '连线引擎: SVG 矢量模式 (点击切换为 Canvas 2D)'"
           >
-            <span class="engine-badge">{{ renderEngine === 'canvas' ? 'CANVAS' : 'SVG' }}</span>
+            <span class="engine-dot"></span>
+            <span class="engine-label">{{ renderEngine.toUpperCase() }}</span>
           </button>
 
-          <!-- 视角重置居中 -->
-          <button class="dock-btn" @click="fitView" title="聚焦配置中心">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
-          </button>
-
-          <!-- 自动整齐排布节点 -->
-          <button class="dock-btn" @click="autoOrganizeNodes" title="自动排版对齐">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <!-- 自动整齐排布节点 (智能星座环绕对齐) -->
+          <button class="dock-icon-btn" @click="autoOrganizeNodes" title="一键智能排版 (围绕创作中心环绕对齐)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           </button>
 
           <!-- 清空当前画布节点 -->
-          <button class="dock-btn danger" @click="clearCanvasNodes" title="清空画布内容 (历史记录仍保留在成果画廊中)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <button class="dock-icon-btn danger-btn" @click="clearCanvasNodes" title="清空画布节点 (画作历史仍保存在画廊)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           </button>
         </div>
       </div>
@@ -609,7 +607,6 @@ const ensureNodeThumbnail = (node) => {
 const panX = ref(150);
 const panY = ref(100);
 const scale = ref(0.9);
-const toolMode = ref('grab'); // 'grab' | 'pointer'
 const isPanning = ref(false);
 const isSpacePressed = ref(false);
 let startPanX = 0;
@@ -1059,7 +1056,7 @@ let pipeOrigY = 0;
 
 const startPipeDrag = (e, pipe) => {
   if (e.button !== 0) return;
-  if (isSpacePressed.value || toolMode.value === 'grab') {
+  if (isSpacePressed.value) {
     startPanning(e);
     return;
   }
@@ -1641,7 +1638,13 @@ const startPanning = (e) => {
   window.addEventListener('mouseup', onMouseUp);
 };
 
-// 捕获阶段拦截：确保按住空格键漫游或中键拖动时，即使点击在卡片、覆盖层或按钮上也能统一触发画布漫游
+// 拦截原生右键菜单：在画布区域内阻止默认菜单以保证长按右键平移画布体验，在输入框放行原生菜单
+const onContextMenu = (e) => {
+  if (isEditableElement(e.target)) return;
+  e.preventDefault();
+};
+
+// 捕获阶段拦截：长按右键/中键或按住空格拖动时，在任意卡片或空白处均可立即平移画布
 const onViewportMouseDownCapture = (e) => {
   const target = e.target;
   // 底部工具坞保持正常点击交互
@@ -1653,24 +1656,16 @@ const onViewportMouseDownCapture = (e) => {
     return;
   }
 
-  // 1. 鼠标中键按下 -> 触发全局平移漫游
-  if (e.button === 1) {
+  // 1. 鼠标右键 (button 2) 或 鼠标中键 (button 1) 按下 -> 立即触发全局平移画布 (最高优先级)
+  if (e.button === 2 || e.button === 1) {
     e.preventDefault();
     e.stopPropagation();
     startPanning(e);
     return;
   }
 
-  // 2. 按住空格键 + 鼠标左键 -> 标准抓手漫游交互 (最高优先级，允许在任意卡片或覆盖层上顺畅拖动画布)
+  // 2. 按住空格键 + 鼠标左键 -> 标准抓手漫游交互 (允许在任意卡片或覆盖层上顺畅拖动画布)
   if (e.button === 0 && isSpacePressed.value) {
-    e.preventDefault();
-    e.stopPropagation();
-    startPanning(e);
-    return;
-  }
-
-  // 3. 抓手模式下 + 鼠标左键 -> 画布平移
-  if (e.button === 0 && toolMode.value === 'grab') {
     e.preventDefault();
     e.stopPropagation();
     startPanning(e);
@@ -1678,15 +1673,25 @@ const onViewportMouseDownCapture = (e) => {
   }
 };
 
-// 平移画布开始 (冒泡兜底)
+// 平移画布开始 (冒泡兜底) 与画布空白点击处理
 const onViewportMouseDown = (e) => {
   const target = e.target;
   if (target && (target.closest('.floating-dock-wrapper') || isEditableElement(target))) {
     return;
   }
 
-  if (e.button === 1 || (e.button === 0 && (toolMode.value === 'grab' || isSpacePressed.value))) {
+  // 1. 右键、中键或空格+左键兜底平移漫游
+  if (e.button === 2 || e.button === 1 || (e.button === 0 && isSpacePressed.value)) {
     startPanning(e);
+    return;
+  }
+
+  // 2. 鼠标左键在画布空白处点击 -> 取消卡片选中态并收起气泡
+  if (e.button === 0) {
+    if (!target.closest('.canvas-node')) {
+      selectedNodeId.value = null;
+      activePromptNodeId.value = null;
+    }
   }
 };
 
@@ -1842,19 +1847,22 @@ const onWheel = (e) => {
   scale.value = newScale;
 };
 
-// 节点拖拽
+// 节点选择与左键拖拽
 const startNodeDrag = (e, node) => {
   if (e.button !== 0) return;
-  if (isSpacePressed.value || toolMode.value === 'grab') {
+  // 按住空格键时，优先平移画布
+  if (isSpacePressed.value) {
     startPanning(e);
     return;
   }
   const target = e.target;
-  // 如果点击的目标是输入框、按钮或交互组件，不要触发节点整体拖拽，保证光标选取与拖拽滚动
+  // 如果点击的目标是输入框、按钮或交互组件，放行内部原生事件，不触发节点整体拖拽
   if (
     target &&
     (target.tagName === 'TEXTAREA' ||
       target.tagName === 'INPUT' ||
+      target.tagName === 'BUTTON' ||
+      target.closest('button') ||
       target.closest('textarea') ||
       target.closest('.node-prompt-input') ||
       target.closest('.ref-thumbnails-list') ||
@@ -1865,7 +1873,14 @@ const startNodeDrag = (e, node) => {
   }
 
   if (nodeAnimId) { cancelAnimationFrame(nodeAnimId); nodeAnimId = null; }
-  selectedNodeId.value = node.id;
+  
+  // 左键点击立即高亮激活当前窗口 / 选中卡片
+  if (node.id && node.id.startsWith('config-center-')) {
+    activeConfigId.value = node.id;
+  } else {
+    selectedNodeId.value = node.id;
+  }
+
   draggingNode = node;
   dragStartX = e.clientX;
   dragStartY = e.clientY;
@@ -2968,7 +2983,7 @@ onUnmounted(() => {
   overflow: hidden;
   background-color: var(--bg-color);
   user-select: none;
-  cursor: grab;
+  cursor: default;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -3039,10 +3054,6 @@ onUnmounted(() => {
   cursor: grab !important;
 }
 
-.canvas-viewport.pointer-mode {
-  cursor: default;
-}
-
 .canvas-world {
   position: absolute;
   top: 0;
@@ -3078,28 +3089,6 @@ onUnmounted(() => {
   height: 100%;
   pointer-events: none;
   z-index: 1;
-}
-
-.render-engine-dock-btn {
-  padding: 0 6px !important;
-}
-
-.render-engine-dock-btn .engine-badge {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--accent-indigo);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  transition: all 0.2s ease;
-}
-
-.render-engine-dock-btn.active .engine-badge {
-  background: var(--accent-indigo);
-  color: #ffffff;
-  border-color: var(--accent-indigo);
 }
 
 /* 贝塞尔连线层 (矢量自适应溢出容器，避免 1 亿像素巨型 raster 纹理，硬件层渲染极速流畅) */
@@ -4242,92 +4231,277 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-/* 底部悬浮控制坞 (彻底去除大胶囊与小圆胶囊！专业线性微倒角工具条) */
+/* ==========================================================================
+   底部悬浮控制坞 (Floating Dock Toolbar - Modern Linear/Figma Glassmorphism)
+   ========================================================================== */
 .floating-dock-wrapper {
   position: absolute;
-  bottom: 20px;
+  bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
+  pointer-events: auto;
+  user-select: none;
+  animation: dockFloatIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.dock-panel {
+@keyframes dockFloatIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.dock-panel.modern-dock {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
-  transition: var(--transition-theme);
+  padding: 5px 9px;
+  background: rgba(13, 17, 30, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border-radius: 9999px;
+  box-shadow: 
+    0 16px 38px -6px rgba(0, 0, 0, 0.52),
+    0 4px 14px -2px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] .dock-panel.modern-dock,
+.light-theme .dock-panel.modern-dock {
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 
+    0 16px 36px -6px rgba(0, 0, 0, 0.12),
+    0 4px 12px -2px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* 1. 人性化快捷交互提示胶囊 */
+.dock-hint-capsule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9999px;
+  cursor: default;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="light"] .dock-hint-capsule,
+.light-theme .dock-hint-capsule {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.hint-mouse-icon {
+  color: var(--accent-indigo, #818cf8);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.hint-text {
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+/* 2. 组间高质感微渐变竖线分隔符 */
+.dock-divider {
+  width: 1px;
+  height: 16px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.16) 20%, rgba(255, 255, 255, 0.16) 80%, transparent);
+}
+
+:root[data-theme="light"] .dock-divider,
+.light-theme .dock-divider {
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.1) 80%, transparent);
 }
 
 .dock-group {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
-.dock-btn {
-  background: transparent;
+/* 3. 通用图标按钮 */
+.dock-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   border: none;
+  background: transparent;
   color: var(--text-secondary);
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: var(--transition-smooth);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.dock-btn:hover {
-  background: var(--bg-subtle-hover);
+.dock-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
   color: var(--text-primary);
+  transform: translateY(-1px);
 }
 
-.dock-btn.active {
-  background: var(--primary-gradient);
-  color: #ffffff;
-  box-shadow: 0 2px 8px var(--accent-glow);
+:root[data-theme="light"] .dock-icon-btn:hover,
+.light-theme .dock-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
-.dock-btn.danger:hover {
-  background: var(--accent-coral-bg);
-  color: var(--color-error);
+.dock-icon-btn:active {
+  transform: scale(0.92);
 }
 
-.dock-divider {
-  width: 1px;
-  height: 14px;
-  background: var(--border-divider);
+.dock-icon-btn.danger-btn:hover {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
 }
 
-.zoom-group {
+/* 4. “＋ 创作窗口” 晶体微光按钮 (告别厚重生硬大色块，融入毛玻璃体系) */
+.dock-action-btn.add-window-btn {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(168, 85, 247, 0.22) 100%);
+  color: #f1f5f9;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.18);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.zoom-value {
+:root[data-theme="light"] .dock-action-btn.add-window-btn,
+.light-theme .dock-action-btn.add-window-btn {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(168, 85, 247, 0.14) 100%);
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #4f46e5;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.1);
+}
+
+.dock-action-btn.add-window-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.38) 0%, rgba(168, 85, 247, 0.38) 100%);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.35);
+  transform: translateY(-1px);
+}
+
+.dock-action-btn.add-window-btn:active {
+  transform: scale(0.96);
+}
+
+.window-count-badge {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: rgba(168, 85, 247, 0.45);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.remove-window-btn {
+  color: #f43f5e !important;
+}
+
+.remove-window-btn:hover {
+  background: rgba(244, 63, 94, 0.15) !important;
+}
+
+/* 5. 缩放控制组 */
+.zoom-indicator-btn {
+  background: transparent;
+  border: none;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  transition: all 0.18s ease;
+}
+
+.zoom-indicator-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="light"] .zoom-indicator-btn:hover,
+.light-theme .zoom-indicator-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.zoom-value-text {
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--text-primary);
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+/* 6. 连线渲染双模引擎微胶囊 (彻底修复原版文字溢出遮盖 Bug) */
+.engine-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-indigo, #818cf8);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.zoom-value:hover {
-  background: var(--bg-subtle-hover);
+.engine-toggle-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.45);
+  transform: translateY(-1px);
 }
 
-/* 多创作窗口支持样式 */
+.engine-toggle-btn .engine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399; /* Canvas 默认绿色呼吸微灯 */
+  box-shadow: 0 0 6px #34d399;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.engine-toggle-btn.svg .engine-dot {
+  background: #c084fc; /* SVG 模式极光紫灯 */
+  box-shadow: 0 0 6px #c084fc;
+}
+
+.engine-toggle-btn .engine-label {
+  white-space: nowrap;
+}
+
+/* 多创作窗口卡片自身激活与标签样式 */
 .is-active-window {
   border-color: var(--primary-color) !important;
   box-shadow: 0 0 0 2px var(--accent-glow), var(--shadow-lg) !important;
@@ -4363,43 +4537,14 @@ onUnmounted(() => {
   color: #fb7185;
 }
 
-.add-win-dock-btn {
-  width: auto !important;
-  padding: 0 11px;
-  gap: 5px;
-  background: var(--primary-gradient);
-  color: #ffffff !important;
-  font-weight: 600;
-  box-shadow: 0 2px 8px var(--accent-glow);
-}
-
-.add-win-dock-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--accent-glow);
-}
-
-.remove-win-dock-btn {
-  width: auto !important;
-  padding: 0 11px;
-  gap: 5px;
-  background: rgba(244, 63, 94, 0.12);
-  border: 1px solid rgba(244, 63, 94, 0.3) !important;
-  color: #fb7185 !important;
-  font-weight: 600;
-  transition: var(--transition-fast);
-}
-
-.remove-win-dock-btn:hover {
-  background: rgba(244, 63, 94, 0.25);
-  border-color: rgba(244, 63, 94, 0.6) !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
-}
-
-.dock-btn-label {
-  font-size: 0.74rem;
-  white-space: nowrap;
+/* 响应式断点适配 */
+@media (max-width: 768px) {
+  .hint-text {
+    display: none;
+  }
+  .dock-hint-capsule {
+    padding: 3px 6px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -4407,13 +4552,10 @@ onUnmounted(() => {
     bottom: 12px;
     max-width: 96vw;
   }
-  .dock-panel {
+  .dock-panel.modern-dock {
     gap: 4px;
     padding: 3px 6px;
     overflow-x: auto;
-  }
-  .render-engine-dock-btn {
-    padding: 0 4px !important;
   }
 }
 </style>
