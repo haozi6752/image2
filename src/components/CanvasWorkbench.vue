@@ -267,12 +267,13 @@
           @mouseenter="hoveredNodeId = node.id"
           @mouseleave="hoveredNodeId = null"
         >
-          <!-- 最新衍生成果横幅与独立按钮 -->
-          <div v-if="node.isRecentGenerated" class="recent-output-banner" @mousedown.stop>
+          <!-- 最新衍生成果横幅与独立按钮 (移除横幅级 mousedown.stop，允许横幅拖动卡片) -->
+          <div v-if="node.isRecentGenerated" class="recent-output-banner">
             <span class="recent-glow-dot"></span>
             <span class="recent-banner-title">最新衍生</span>
             <button 
               class="separate-node-btn" 
+              @mousedown.stop
               @click.stop="separateGeneratedNode(node.id)" 
               title="将此图确立为独立分支，自动建立提示词血统节点，并使创作中心完全独立"
             >
@@ -287,21 +288,33 @@
             <span class="img-node-ratio" title="图片宽高比规格 (如 1:1 正方形, 16:9 横屏, 9:16 竖屏)">{{ node.ratio || '1:1' }}</span>
           </div>
 
-          <!-- 图像主体与交互浮层 (双击图片直接全屏预览放大) -->
+          <!-- 图像主体与交互浮层 (双击图片放大预览，长按左键流畅拖动卡片) -->
           <div 
             class="img-node-media" 
+            draggable="false"
+            @dragstart.prevent
             @dblclick.stop="$emit('preview', node)"
-            title="双击图片放大预览"
+            title="双击图片放大预览 · 左键长按可拖动卡片"
           >
-            <img :src="node.thumbnailUrl || node.url" :alt="node.prompt" class="img-preview" decoding="async" loading="lazy" @error="node.thumbnailUrl = null" />
+            <img 
+              :src="node.thumbnailUrl || node.url" 
+              :alt="node.prompt" 
+              class="img-preview" 
+              draggable="false" 
+              @dragstart.prevent 
+              decoding="async" 
+              loading="lazy" 
+              @error="node.thumbnailUrl = null" 
+            />
             
-            <!-- 悬浮操作面板 -->
-            <div class="img-hover-overlay" @mousedown.stop>
+            <!-- 悬浮操作面板 (移除容器级 mousedown.stop，使面板空白处与整图任意位置均可畅快拖动卡片) -->
+            <div class="img-hover-overlay">
               <div class="overlay-actions">
                 <!-- 快捷参考控制：已在参考组显示【移出参考】，未在参考组显示【设为参考】/【+追加参考】 -->
                 <button 
                   v-if="isNodeInRefImages(node.id)"
                   class="action-pill-btn in-ref-btn" 
+                  @mousedown.stop
                   @click.stop="removeNodeFromRefImages(node.id)"
                   title="从创作中心参考组合中移出此图"
                 >
@@ -312,6 +325,7 @@
                 <button 
                   v-else
                   class="action-pill-btn add-ref-btn" 
+                  @mousedown.stop
                   @click.stop="toggleNodeInRefImages(node)"
                   :title="(activeConfigNode?.refImages?.length || 0) === 0 ? '设为参考图 (将清空输入框文本以输入新构思)' : '追加到参考组合中进行多图融合'"
                 >
@@ -323,6 +337,7 @@
                 <button 
                   v-if="node.isRecentGenerated"
                   class="action-pill-btn separate-action-pill" 
+                  @mousedown.stop
                   @click.stop="separateGeneratedNode(node.id)"
                   title="将生成的图独立出去，建立血统连接，使创作中心独立"
                 >
@@ -334,6 +349,7 @@
                   <!-- 仅以此图为唯一参考（清空其他与提示词） -->
                   <button 
                     class="icon-circle-btn sole-ref-btn" 
+                    @mousedown.stop
                     @click.stop="setAsSoleReference(node)" 
                     title="以此图重新开启独立分支 (清空其他参考图与提示词)"
                   >
@@ -344,7 +360,8 @@
                   <button 
                     class="icon-circle-btn" 
                     :class="{ active: activePromptNodeId === node.id }"
-                    @click="togglePromptPopover(node.id)" 
+                    @mousedown.stop
+                    @click.stop="togglePromptPopover(node.id)" 
                     title="查看并复制提示词"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -353,19 +370,20 @@
                   <!-- 重新设计的复用提示词按钮 (填入创作框) -->
                   <button 
                     class="icon-circle-btn reuse-btn" 
-                    @click="copyPromptToConfig(node.prompt)" 
+                    @mousedown.stop
+                    @click.stop="copyPromptToConfig(node.prompt)" 
                     title="填入创作框"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
 
                   <!-- 下载图片 -->
-                  <button class="icon-circle-btn" @click="downloadImage(node)" title="下载保存">
+                  <button class="icon-circle-btn" @mousedown.stop @click.stop="downloadImage(node)" title="下载保存">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   </button>
 
                   <!-- 从画布移除 -->
-                  <button class="icon-circle-btn delete-btn" @click="removeNodeFromCanvas(node.id)" title="从画布中移除">
+                  <button class="icon-circle-btn delete-btn" @mousedown.stop @click.stop="removeNodeFromCanvas(node.id)" title="从画布中移除">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
                 </div>
@@ -1726,6 +1744,9 @@ const flushMouseDrag = () => {
     pendingNode = null;
     pendingNodeX = null;
     pendingNodeY = null;
+    if (renderEngine.value === 'canvas') {
+      drawConnections(panX.value, panY.value, scale.value);
+    }
   }
 };
 
@@ -1884,8 +1905,8 @@ const startNodeDrag = (e, node) => {
   draggingNode = node;
   dragStartX = e.clientX;
   dragStartY = e.clientY;
-  nodeOrigX = node.x;
-  nodeOrigY = node.y;
+  nodeOrigX = typeof node.x === 'number' ? node.x : Number(node.x) || 0;
+  nodeOrigY = typeof node.y === 'number' ? node.y : Number(node.y) || 0;
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onMouseUp);
 };
@@ -3703,7 +3724,9 @@ onUnmounted(() => {
   overflow: hidden;
   aspect-ratio: 1;
   background: var(--bg-subtle);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .img-preview {
@@ -3711,6 +3734,11 @@ onUnmounted(() => {
   height: 100%;
   object-fit: cover;
   display: block;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: none; /* 图片本身不拦截指针，由媒体卡片处理拖拽 */
 }
 
 /* 悬停浮层 */
@@ -3728,10 +3756,19 @@ onUnmounted(() => {
   opacity: 0;
   transition: opacity 0.25s ease;
   border-radius: var(--radius-md);
+  cursor: grab;
 }
 
 .img-node-media:hover .img-hover-overlay {
   opacity: 1;
+}
+
+/* 卡片拖拽中全局光标为抓紧态 */
+.canvas-node.image-node.is-dragging,
+.canvas-node.image-node.is-dragging .img-node-media,
+.canvas-node.image-node.is-dragging .img-hover-overlay,
+.canvas-node.image-node.is-dragging .img-node-header {
+  cursor: grabbing !important;
 }
 
 .overlay-actions {
