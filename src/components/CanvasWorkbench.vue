@@ -254,6 +254,7 @@
         <div 
           v-for="node in imageNodes" 
           :key="node.id"
+          :ref="el => registerNodeEl(node.id, el)"
           class="canvas-node image-node glass-panel"
           :class="{ 
             'selected': selectedNodeId === node.id, 
@@ -291,6 +292,7 @@
           <!-- 图像主体与交互浮层 (双击图片放大预览，长按左键流畅拖动卡片) -->
           <div 
             class="img-node-media" 
+            :style="{ aspectRatio: node.ratio === '16:9' ? '16 / 9' : (node.ratio === '9:16' ? '9 / 16' : '1 / 1') }"
             draggable="false"
             @dragstart.prevent
             @dblclick.stop="$emit('preview', node)"
@@ -870,7 +872,22 @@ const insertWindowBlendTemplate = (win) => {
   emit('show-toast', { message: `已填充 [${win.name}] 多图融合提示词模版！`, type: 'success' });
 };
 
-// 注册创作窗口 DOM 测量引用
+// 注册创作窗口与图片卡片 DOM 测量引用 (高精度实测尺寸，彻底消除连线悬空断裂)
+const domMeasureTick = ref(0);
+let measureRafId = null;
+
+const scheduleMeasureUpdate = () => {
+  if (!measureRafId) {
+    measureRafId = requestAnimationFrame(() => {
+      measureRafId = null;
+      domMeasureTick.value++;
+      if (renderEngine.value === 'canvas') {
+        drawConnections(panX.value, panY.value, scale.value);
+      }
+    });
+  }
+};
+
 const winEls = new Map();
 const registerWinEl = (winId, el) => {
   if (el) {
@@ -880,6 +897,17 @@ const registerWinEl = (winId, el) => {
   } else {
     winEls.delete(winId);
   }
+  scheduleMeasureUpdate();
+};
+
+const nodeEls = new Map();
+const registerNodeEl = (nodeId, el) => {
+  if (el) {
+    nodeEls.set(nodeId, el);
+  } else {
+    nodeEls.delete(nodeId);
+  }
+  scheduleMeasureUpdate();
 };
 
 const configNodeEl = ref(null);
@@ -899,13 +927,18 @@ const isAnyRefActive = computed(() => {
   return creationWindows.value.some(w => w.refImages && w.refImages.length > 0);
 });
 
-// 计算卡片动态总高度（精确对准卡片右侧中点 handle 坐标）
+// 计算卡片动态总高度（优先采用实测 DOM offsetHeight，彻底杜绝估算偏差造成的悬空断线）
 const getNodeHeight = (node) => {
+  if (!node) return 320;
+  const el = nodeEls.get(node.id);
+  if (el && el.offsetHeight > 0) {
+    return el.offsetHeight;
+  }
   const w = (node.width || 280) - 20;
   let imgH = w;
   if (node.ratio === '16:9') imgH = Math.round(w * 9 / 16);
   else if (node.ratio === '9:16') imgH = Math.round(w * 16 / 9);
-  let extraH = 56;
+  let extraH = 46;
   if (node.isRecentGenerated) extraH += 32;
   return imgH + extraH;
 };
@@ -1218,6 +1251,8 @@ const calculateSmartConnector = (rectFrom, rectTo) => {
 
 // 计算所有活跃的连接线（四周无缝连续物理滑动 + 支持多创作窗口独立连线 + 交叉分层）
 const activeLinks = computed(() => {
+  // 响应式追踪 DOM 测量版本，确保卡片尺寸确定后自动重新计算
+  domMeasureTick.value;
   const links = [];
 
   // 1. 遍历所有创作窗口，独立计算各自的向心参考连线与向外输出连线
@@ -1247,8 +1282,9 @@ const activeLinks = computed(() => {
       });
 
       parentNodes.forEach(parent => {
-        const cardW = parent.width || 280;
-        const cardH = getNodeHeight(parent);
+        const pEl = nodeEls.get(parent.id);
+        const cardW = pEl?.offsetWidth || parent.width || 280;
+        const cardH = pEl?.offsetHeight || getNodeHeight(parent);
         const rectCard = {
           x: parent.x,
           y: parent.y,
@@ -1291,11 +1327,12 @@ const activeLinks = computed(() => {
         // 如果该节点由当前窗口产生，或者属于当前获得焦点的窗口
         const isBelong = recentNode.sourceWindowId ? (recentNode.sourceWindowId === win.id) : (win.id === activeConfigId.value);
         if (isBelong) {
+          const rEl = nodeEls.get(recentNode.id);
           const rectRecent = {
             x: recentNode.x,
             y: recentNode.y,
-            w: recentNode.width || 280,
-            h: getNodeHeight(recentNode)
+            w: rEl?.offsetWidth || recentNode.width || 280,
+            h: rEl?.offsetHeight || getNodeHeight(recentNode)
           };
           const conn = calculateSmartConnector(rectWin, rectRecent);
 
@@ -1337,11 +1374,12 @@ const activeLinks = computed(() => {
     pipe.parentIds.forEach((pid, pIdx) => {
       const parent = imageNodes.value.find(n => n.id === pid);
       if (parent) {
+        const pEl = nodeEls.get(parent.id);
         const rectParent = {
           x: parent.x,
           y: parent.y,
-          w: parent.width || 280,
-          h: getNodeHeight(parent)
+          w: pEl?.offsetWidth || parent.width || 280,
+          h: pEl?.offsetHeight || getNodeHeight(parent)
         };
         const conn = calculateSmartConnector(rectParent, rectPipe);
         links.push({
@@ -1364,11 +1402,12 @@ const activeLinks = computed(() => {
     });
 
     // 小方框 -> 生成图
+    const cEl = nodeEls.get(child.id);
     const rectChild = {
       x: child.x,
       y: child.y,
-      w: child.width || 280,
-      h: getNodeHeight(child)
+      w: cEl?.offsetWidth || child.width || 280,
+      h: cEl?.offsetHeight || getNodeHeight(child)
     };
     const connOut = calculateSmartConnector(rectPipe, rectChild);
     links.push({
@@ -2739,6 +2778,7 @@ const loadExternalImageToCanvas = (item) => {
       thumbnailUrl: item.thumbnailUrl || null,
       prompt: item.prompt,
       model: item.model,
+      ratio: item.ratio || '1:1',
       width: 280,
       x: slot.x,
       y: slot.y,
@@ -2778,6 +2818,7 @@ const addGalleryItemAsReference = (item) => {
       thumbnailUrl: item.thumbnailUrl || null,
       prompt: item.prompt,
       model: item.model,
+      ratio: item.ratio || '1:1',
       width: 280,
       x: slot.x,
       y: slot.y,
@@ -2821,6 +2862,7 @@ const addGalleryItemToCanvas = (item) => {
     thumbnailUrl: item.thumbnailUrl || null,
     prompt: item.prompt,
     model: item.model,
+    ratio: item.ratio || '1:1',
     width: 280,
     x: slot.x,
     y: slot.y,
@@ -2902,6 +2944,7 @@ onMounted(() => {
         thumbnailUrl: item.thumbnailUrl || null,
         prompt: item.prompt,
         model: item.model,
+        ratio: item.ratio || '1:1',
         width: 280,
         x: slot.x,
         y: slot.y,
@@ -3722,11 +3765,11 @@ onUnmounted(() => {
   width: 100%;
   border-radius: var(--radius-md);
   overflow: hidden;
-  aspect-ratio: 1;
   background: var(--bg-subtle);
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  max-height: 520px;
 }
 
 .img-preview {
