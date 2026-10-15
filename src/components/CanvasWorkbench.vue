@@ -529,9 +529,69 @@
           <button class="dock-icon-btn" @click="zoomIn" title="放大画布">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </button>
-          <button class="dock-icon-btn" @click="fitView" title="重置视角并居中焦点窗口">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="3" r="3"></circle></svg>
-          </button>
+          <!-- 智能多窗口定位与巡航跳板复合组件 -->
+          <div class="locate-nav-wrapper" ref="locateNavRef">
+            <button 
+              class="dock-icon-btn locate-btn" 
+              :class="{ 'has-multiple': creationWindows.length > 1, 'menu-open': isLocateMenuOpen }"
+              @click="handleLocateClick" 
+              :title="creationWindows.length > 1 ? `智能定位巡航 (点击循环切换窗口集群与全览，可点击小箭头展开直达跳板)` : '重置视角并居中创作配置中心'"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="3" r="3"></circle></svg>
+              <span v-if="creationWindows.length > 1" class="locate-cycle-badge">{{ currentLocateIndexName }}</span>
+            </button>
+            <button 
+              v-if="creationWindows.length > 1"
+              class="locate-dropdown-toggle-btn"
+              :class="{ 'open': isLocateMenuOpen }"
+              @click.stop="isLocateMenuOpen = !isLocateMenuOpen"
+              title="展开多窗口定位跳板"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+
+            <!-- 浮动毛玻璃多窗口导航跳板菜单 (向上浮出) -->
+            <Transition name="locate-pop">
+              <div v-if="isLocateMenuOpen" class="locate-nav-menu glass-panel" @click.stop>
+                <div class="locate-menu-header">
+                  <div class="menu-header-left">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+                    <span class="menu-title">视角定位与巡航</span>
+                  </div>
+                  <span class="menu-sub">{{ creationWindows.length }} 个创作集群</span>
+                </div>
+                <div class="locate-menu-list">
+                  <!-- 全景全览选项 -->
+                  <div 
+                    class="locate-menu-item overview-item"
+                    @click="locateToOverview"
+                  >
+                    <div class="menu-item-left">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                      <span class="item-name">全景鸟瞰全览 (Fit All)</span>
+                    </div>
+                    <span class="item-badge">全部纳入</span>
+                  </div>
+                  <div class="locate-menu-divider"></div>
+                  <!-- 各个窗口集群选项 -->
+                  <div 
+                    v-for="(win, idx) in creationWindows"
+                    :key="win.id"
+                    class="locate-menu-item"
+                    :class="{ 'active': activeConfigId === win.id }"
+                    @click="locateToWindowCluster(win.id)"
+                  >
+                    <div class="menu-item-left">
+                      <span class="locate-dot" :class="{ 'active': activeConfigId === win.id }"></span>
+                      <span class="item-name">{{ win.name || `创作中心 #${idx + 1}` }}</span>
+                      <span v-if="activeConfigId === win.id" class="item-focus-pill">当前焦点</span>
+                    </div>
+                    <span class="item-stats">{{ getClusterStatsText(win.id) }}</span>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
         </div>
 
         <div class="dock-divider"></div>
@@ -2031,27 +2091,139 @@ const animateNodesSmooth = (nodeMoveList, duration = 520, onComplete = null) => 
   nodeAnimId = requestAnimationFrame(frame);
 };
 
-// 视角重置：平滑柔和地对焦至当前活跃创作配置中心卡片
-const fitView = () => {
-  if (!viewportRef.value) return;
-  const vRect = viewportRef.value.getBoundingClientRect();
-  const targetScale = 0.95;
-  
-  const win = activeConfigNode.value || creationWindows.value[0];
-  const winX = win ? win.x : 100;
-  const winY = win ? win.y : 120;
-  const el = win ? winEls.get(win.id) : null;
+// ==========================================================================
+// 多窗口定位与导航系统 (Multi-Window Cluster Navigation & Quick Navigator)
+// ==========================================================================
+const isLocateMenuOpen = ref(false);
+const locateNavRef = ref(null);
+const locateCycleIndex = ref(-1);
+
+// 当前聚焦窗口名称/角标
+const currentLocateIndexName = computed(() => {
+  if (creationWindows.value.length <= 1) return '';
+  const idx = creationWindows.value.findIndex(w => w.id === activeConfigId.value);
+  return idx >= 0 ? `#${idx + 1}` : '✨';
+});
+
+// 获取某个创作窗口归属的星系集群节点 (创作窗口本身 + 参考图节点 + 生成图节点)
+const getClusterNodes = (winId) => {
+  const win = creationWindows.value.find(w => w.id === winId);
+  if (!win) return [];
+  const el = winEls.get(win.id);
   const winW = el?.offsetWidth || 440;
   const winH = el?.offsetHeight || 360;
 
-  const nodeCenterX = Math.round(winX + winW / 2);
-  const nodeCenterY = Math.round(winY + winH / 2);
-  
-  const targetPanX = Math.round(vRect.width / 2 - nodeCenterX * targetScale);
-  const targetPanY = Math.round(vRect.height / 2 - nodeCenterY * targetScale);
-  
-  animateViewportSmooth(targetPanX, targetPanY, targetScale, 480);
-  emit('show-toast', { message: '视角已平滑聚焦至创作配置中心', type: 'info' });
+  const clusterNodes = [
+    { x: win.x, y: win.y, w: winW, h: winH }
+  ];
+
+  const nodeMap = new Map();
+  imageNodes.value.forEach(n => nodeMap.set(n.id, n));
+
+  // 1. 该窗口的参考图
+  if (win.refImages && win.refImages.length > 0) {
+    win.refImages.forEach(refItem => {
+      const tid = refItem.parentId || refItem.id;
+      const n = nodeMap.get(tid);
+      if (n) {
+        clusterNodes.push({ x: n.x, y: n.y, w: n.width || 280, h: getNodeHeight(n) });
+      }
+    });
+  }
+
+  // 2. 由该窗口生成的图片
+  imageNodes.value.forEach(n => {
+    if (n.sourceWindowId === win.id) {
+      clusterNodes.push({ x: n.x, y: n.y, w: n.width || 280, h: getNodeHeight(n) });
+    }
+  });
+
+  return clusterNodes;
+};
+
+// 获取某个创作窗口集群的元信息统计文本 (用于跳板菜单展示)
+const getClusterStatsText = (winId) => {
+  const win = creationWindows.value.find(w => w.id === winId);
+  if (!win) return '';
+  const refCount = win.refImages?.length || 0;
+  const genCount = imageNodes.value.filter(n => n.sourceWindowId === win.id).length;
+  if (refCount === 0 && genCount === 0) return '纯文本就绪';
+  if (refCount > 0 && genCount > 0) return `${refCount}参考 · ${genCount}生成`;
+  if (refCount > 0) return `${refCount}张参考图`;
+  return `${genCount}张生成图`;
+};
+
+// 视角平滑对焦至指定创作窗口集群 (保持 0.85~0.92 的舒适清晰比例，绝不缩成小点)
+const locateToWindowCluster = (winId) => {
+  isLocateMenuOpen.value = false;
+  activeConfigId.value = winId;
+  const targetWin = creationWindows.value.find(w => w.id === winId);
+  const clusterNodes = getClusterNodes(winId);
+
+  // 聚焦该集群，限定最大缩放 0.92，最小 0.72，确保高度清晰可见！
+  fitNodesInView(clusterNodes, 0.92, 0.72);
+  const winIdx = creationWindows.value.findIndex(w => w.id === winId);
+  locateCycleIndex.value = winIdx;
+  emit('show-toast', {
+    message: `视角已定位至 [${targetWin?.name || '创作中心'}] (${getClusterStatsText(winId)})`,
+    type: 'info'
+  });
+};
+
+// 视角切换至全景鸟瞰全览 (Fit All)
+const locateToOverview = () => {
+  isLocateMenuOpen.value = false;
+  const allElements = [];
+  creationWindows.value.forEach(w => {
+    const el = winEls.get(w.id);
+    allElements.push({ x: w.x, y: w.y, w: el?.offsetWidth || 440, h: el?.offsetHeight || 360 });
+  });
+  imageNodes.value.forEach(n => {
+    allElements.push({ x: n.x, y: n.y, w: n.width || 280, h: getNodeHeight(n) });
+  });
+
+  fitNodesInView(allElements, 0.95, 0.25);
+  locateCycleIndex.value = creationWindows.value.length; // 标记全景状态
+  emit('show-toast', { message: '已切换为画布全景鸟瞰视角', type: 'info' });
+};
+
+// 点击定位按钮处理：单窗口直接对焦，多窗口循环巡航
+const handleLocateClick = () => {
+  if (creationWindows.value.length <= 1) {
+    const win = creationWindows.value[0];
+    if (win) {
+      locateToWindowCluster(win.id);
+    } else {
+      fitView();
+    }
+    return;
+  }
+
+  // 多窗口场景：按队列循环切换 [窗口0 -> 窗口1 -> ... -> 全景 -> 窗口0]
+  const totalStates = creationWindows.value.length + 1;
+  locateCycleIndex.value = (locateCycleIndex.value + 1) % totalStates;
+
+  if (locateCycleIndex.value < creationWindows.value.length) {
+    const nextWin = creationWindows.value[locateCycleIndex.value];
+    locateToWindowCluster(nextWin.id);
+  } else {
+    locateToOverview();
+  }
+};
+
+// 视角重置 (兼容原有调用，智能定位当前活跃窗口集群)
+const fitView = () => {
+  const win = activeConfigNode.value || creationWindows.value[0];
+  if (win) {
+    locateToWindowCluster(win.id);
+  }
+};
+
+// 全局监听点击外部关闭定位跳板菜单
+const handleGlobalLocateClick = (e) => {
+  if (isLocateMenuOpen.value && locateNavRef.value && !locateNavRef.value.contains(e.target)) {
+    isLocateMenuOpen.value = false;
+  }
 };
 
 // 触发生成事件 (兼容旧调用，默认调用当前活跃窗口)
@@ -2261,7 +2433,8 @@ const clearCanvasNodes = () => {
 };
 
 // 自适应聚焦一组节点，确保其全部纳入当前屏幕视野中心 (不被遮挡)
-const fitNodesInView = (nodes) => {
+// 支持自定义 maxScale 与 minScale，兼顾单集群清晰度 (0.85~0.95) 与全景全览自适应
+const fitNodesInView = (nodes, maxScale = 0.95, minScale = 0.3) => {
   if (!viewportRef.value || !nodes || nodes.length === 0) {
     fitView();
     return;
@@ -2282,7 +2455,8 @@ const fitNodesInView = (nodes) => {
   const totalW = Math.max(100, maxX - minX);
   const totalH = Math.max(100, maxY - minY);
 
-  const targetScale = Math.min(0.95, Math.max(0.3, Math.min((vW - pad * 2) / totalW, (vH - pad * 2) / totalH)));
+  const rawScale = Math.min((vW - pad * 2) / totalW, (vH - pad * 2) / totalH);
+  const targetScale = Math.min(maxScale, Math.max(minScale, rawScale));
   const boxCenterX = (minX + maxX) / 2;
   const boxCenterY = (minY + maxY) / 2;
 
@@ -2410,7 +2584,7 @@ const findSmartSurroundingSlot = (targetWin, isReference = false) => {
 };
 
 // 自动排版对齐：围绕创作窗口四周自然散落环绕 (Surrounding Constellation Layout)
-// 自由而乱中有序，拒绝死板刻板方向与高耸图腾柱，连线舒展，整体高度紧凑适宜 (如用户图四所示)
+// 单窗口原位舒适归整；多窗口基于各自原有位置就地错落整理 + 集群间弹性推开防重叠 + 连线血统方框跟随 + 智能自适应视口落焦
 const autoOrganizeNodes = () => {
   const CARD_WIDTH = 280;
   const CARD_HEIGHT = 330;
@@ -2422,37 +2596,88 @@ const autoOrganizeNodes = () => {
   const nodeMap = new Map();
   allNodes.forEach(n => nodeMap.set(n.id, n));
 
-  // 1. 排布各个创作窗口的位置 (如果有多个窗口，水平间隔 1450px 依次排开)
+  const winCount = creationWindows.value.length;
+  const isSingleWin = winCount === 1;
+
+  // 1. 确定各个创作窗口的排版目标锚点
   const winMoveList = [];
   const baseSpacing = 1450;
   const startX = 650;
   const startY = 500;
 
-  creationWindows.value.forEach((win, wIdx) => {
-    const winTargetX = startX + wIdx * baseSpacing;
-    const winTargetY = startY;
+  if (isSingleWin) {
+    // 单窗口情况：平滑优雅移回舒适的居中视觉基准位 (650, 500)
+    const win = creationWindows.value[0];
     winMoveList.push({
       node: win,
       startX: win.x,
       startY: win.y,
-      targetX: winTargetX,
-      targetY: winTargetY
+      targetX: startX,
+      targetY: startY
     });
-  });
+  } else {
+    // 多窗口情况：保留每个窗口原有的空间分区方位，以现有坐标作为初始目标，绝不粗暴强行抹杀空间记忆！
+    creationWindows.value.forEach(win => {
+      winMoveList.push({
+        node: win,
+        startX: win.x,
+        startY: win.y,
+        targetX: Math.round(win.x),
+        targetY: Math.round(win.y)
+      });
+    });
 
-  // 2. 针对每个创作窗口，收集其归属的参考图、衍生图与自由节点
+    // 集群间弹性排斥分离 (Cluster Separation Pass - 确保多个创作中心及其星系不发生空间重叠打架)
+    const CLUSTER_MIN_DIST = 1400;
+    for (let pass = 0; pass < 15; pass++) {
+      let moved = false;
+      for (let i = 0; i < winMoveList.length; i++) {
+        for (let j = i + 1; j < winMoveList.length; j++) {
+          const wA = winMoveList[i];
+          const wB = winMoveList[j];
+          let dx = wB.targetX - wA.targetX;
+          let dy = wB.targetY - wA.targetY;
+          let dist = Math.hypot(dx, dy);
+
+          if (dist < 1) {
+            dx = CLUSTER_MIN_DIST;
+            dy = 0;
+            dist = CLUSTER_MIN_DIST;
+          }
+
+          if (dist < CLUSTER_MIN_DIST) {
+            const overlap = (CLUSTER_MIN_DIST - dist) / 2;
+            const nx = dx / dist;
+            const ny = dy / dist;
+            wB.targetX += Math.round(nx * overlap);
+            wB.targetY += Math.round(ny * overlap);
+            wA.targetX -= Math.round(nx * overlap);
+            wA.targetY -= Math.round(ny * overlap);
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
+  // 2. 针对每个创作窗口，收集其归属的参考图、衍生图与自由节点并就地环绕排布
   const assignedNodeIds = new Set();
+  const windowClusterTargetMap = new Map(); // winId -> Array of target items
 
-  creationWindows.value.forEach((win, wIdx) => {
-    const winTargetX = startX + wIdx * baseSpacing;
-    const winTargetY = startY;
+  creationWindows.value.forEach((win) => {
+    const wMove = winMoveList.find(m => m.node.id === win.id);
+    const winTargetX = wMove ? wMove.targetX : win.x;
+    const winTargetY = wMove ? wMove.targetY : win.y;
     const el = winEls.get(win.id);
     const winW = el?.offsetWidth || 440;
     const winH = el?.offsetHeight || 360;
     const winCenterX = winTargetX + winW / 2;
     const winCenterY = winTargetY + winH / 2;
 
-    // A. 提取归属此窗口的参考图
+    const clusterTargets = [];
+
+    // A. 提取归属此窗口的参考图 (由近及远在左半周西侧/西北侧)
     const refIds = [];
     if (win.refImages && win.refImages.length > 0) {
       win.refImages.forEach(refItem => {
@@ -2464,7 +2689,7 @@ const autoOrganizeNodes = () => {
       });
     }
 
-    // B. 提取归属此窗口的生成图 (由该窗口产生)
+    // B. 提取归属此窗口的生成图 (由该窗口产生，在右半周东侧/东南侧)
     const genIds = [];
     allNodes.forEach(node => {
       if (!assignedNodeIds.has(node.id)) {
@@ -2481,18 +2706,17 @@ const autoOrganizeNodes = () => {
     const freeIds = [];
     allNodes.forEach(node => {
       if (!assignedNodeIds.has(node.id)) {
-        if (creationWindows.value.length === 1 || Math.abs(node.x - win.x) < baseSpacing / 2) {
+        if (isSingleWin || Math.abs(node.x - win.x) < baseSpacing / 2) {
           freeIds.push(node.id);
           assignedNodeIds.add(node.id);
         }
       }
     });
 
-    // 核心轨道尺寸：紧密贴近创作窗口，拒绝垂直拉长，保持宜人的 16:9 / 4:3 宽高比
-    const baseRx = (winW + CARD_WIDTH) / 2 + 75; // ~435px
-    const baseRy = (winH + CARD_HEIGHT) / 2 + 55; // ~400px
+    // 核心轨道尺寸：紧密贴近创作窗口，保持宜人的 16:9 比例
+    const baseRx = (winW + CARD_WIDTH) / 2 + 75;
+    const baseRy = (winH + CARD_HEIGHT) / 2 + 55;
 
-    // 乱中有序分布算法：
     // 参考图错落摆放在左半周 (西面、西北、西南、正北侧，角度 115°~245°)
     if (refIds.length > 0) {
       const nRef = refIds.length;
@@ -2508,12 +2732,13 @@ const autoOrganizeNodes = () => {
         const centerAngle = Math.PI; // 正西
         const startAngle = centerAngle - span / 2;
         const step = countInLayer > 1 ? span / (countInLayer - 1) : 0;
-        const jitter = (((idx * 17) % 11) - 5) * 0.02; // 微小错落扰动
+        const jitter = (((idx * 17) % 11) - 5) * 0.02;
         const angle = countInLayer === 1 ? centerAngle : (startAngle + idxInLayer * step + jitter);
 
         const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
         const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
         targetsMap.set(id, { x: targetX, y: targetY, origAngle: angle, rx, ry });
+        clusterTargets.push(id);
       });
     }
 
@@ -2538,16 +2763,16 @@ const autoOrganizeNodes = () => {
         const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
         const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
         targetsMap.set(id, { x: targetX, y: targetY, origAngle: angle, rx, ry });
+        clusterTargets.push(id);
       });
     }
 
-    // 自由节点：摆放在正上方、正下方及环上空余槽位 (绝不垂直叠加成柱，而是在椭圆环上横向散开)
+    // 自由节点：摆放在正上方、正下方及环上空余槽位
     if (freeIds.length > 0) {
       freeIds.forEach((id, idx) => {
         const rx = baseRx + (idx >= 6 ? 210 : 0);
         const ry = baseRy + (idx >= 6 ? 190 : 0);
 
-        // 奇数在上，偶数在下，带有横向偏置，绝不竖排
         const isTop = idx % 2 === 0;
         const pairIndex = Math.floor(idx / 2);
         const horizontalOffsetAngle = (pairIndex * 0.26) * (pairIndex % 2 === 0 ? 1 : -1);
@@ -2557,15 +2782,18 @@ const autoOrganizeNodes = () => {
         const targetX = Math.round(winCenterX + rx * Math.cos(angle) - CARD_WIDTH / 2);
         const targetY = Math.round(winCenterY + ry * Math.sin(angle) - CARD_HEIGHT / 2);
         targetsMap.set(id, { x: targetX, y: targetY, origAngle: angle, rx, ry });
+        clusterTargets.push(id);
       });
     }
+
+    windowClusterTargetMap.set(win.id, clusterTargets);
   });
 
   // 处理剩余未分配的全局节点
   const remaining = allNodes.filter(n => !assignedNodeIds.has(n.id));
   if (remaining.length > 0) {
     const firstWin = creationWindows.value[0];
-    const winTarget = winMoveList[0];
+    const winTarget = winMoveList[0] || { targetX: firstWin.x, targetY: firstWin.y };
     const el = winEls.get(firstWin.id);
     const winW = el?.offsetWidth || 440;
     const winH = el?.offsetHeight || 360;
@@ -2668,7 +2896,7 @@ const autoOrganizeNodes = () => {
     targetsMap.set(t.id, { x: Math.round(t.x), y: Math.round(t.y) });
   });
 
-  // 4. 构建全部节点的平滑移动任务列表
+  // 4. 构建全部节点的平滑移动任务列表 (包含创作窗口、图片卡片与血统小方框)
   const moveList = [...winMoveList];
   allNodes.forEach(n => {
     const target = targetsMap.get(n.id);
@@ -2683,24 +2911,97 @@ const autoOrganizeNodes = () => {
     }
   });
 
-  // 5. 启动平滑排版位移动画，完成后自动运镜聚焦包围盒
-  animateNodesSmooth(moveList, 520, () => {
-    fitNodesInView(moveList.map(m => {
-      const isWin = creationWindows.value.includes(m.node);
-      const el = isWin ? winEls.get(m.node.id) : null;
-      return { 
-        x: m.targetX, 
-        y: m.targetY, 
-        w: isWin ? (el?.offsetWidth || 440) : CARD_WIDTH, 
-        h: isWin ? (el?.offsetHeight || 360) : CARD_HEIGHT 
-      };
-    }));
+  // 同步平滑位移血统 Prompt 小方框 (Derivation Pipelines)，确保连线中心血统节点不掉队
+  derivationPipelines.value.forEach(pipe => {
+    const childTarget = targetsMap.get(pipe.childId);
+    const parentTargets = (pipe.parentIds || []).map(pid => targetsMap.get(pid)).filter(Boolean);
+    if (childTarget && parentTargets.length > 0) {
+      const refAvgX = parentTargets.reduce((sum, p) => sum + (p.x + CARD_WIDTH), 0) / parentTargets.length;
+      const refAvgY = parentTargets.reduce((sum, p) => sum + (p.y + 165), 0) / parentTargets.length;
+      const childCenterX = childTarget.x;
+      const childCenterY = childTarget.y + 165;
+      const targetPipeX = Math.round((refAvgX + childCenterX) / 2 - 20);
+      const targetPipeY = Math.round((refAvgY + childCenterY) / 2 - 16);
+      moveList.push({
+        node: pipe,
+        startX: pipe.x,
+        startY: pipe.y,
+        targetX: targetPipeX,
+        targetY: targetPipeY
+      });
+    }
   });
 
-  emit('show-toast', { 
-    message: '已完成四周自然错落排版！乱中有序，高度适宜，脉络连线清晰灵动', 
-    type: 'success' 
+  // 5. 启动平滑排版位移动画，完成后智能执行视口落焦
+  animateNodesSmooth(moveList, 520, () => {
+    if (isSingleWin) {
+      // 单窗口场景：整齐聚焦唯一集群，比例保持 0.88~0.95，清晰居中
+      fitNodesInView(moveList.map(m => {
+        const isWin = creationWindows.value.includes(m.node);
+        const el = isWin ? winEls.get(m.node.id) : null;
+        return { 
+          x: m.targetX, 
+          y: m.targetY, 
+          w: isWin ? (el?.offsetWidth || 440) : CARD_WIDTH, 
+          h: isWin ? (el?.offsetHeight || 360) : CARD_HEIGHT 
+        };
+      }), 0.95, 0.7);
+    } else {
+      // 多窗口场景：评估总体包围盒
+      const allTargetBoxes = moveList.map(m => {
+        const isWin = creationWindows.value.includes(m.node);
+        const el = isWin ? winEls.get(m.node.id) : null;
+        return { 
+          x: m.targetX, 
+          y: m.targetY, 
+          w: isWin ? (el?.offsetWidth || 440) : CARD_WIDTH, 
+          h: isWin ? (el?.offsetHeight || 360) : CARD_HEIGHT 
+        };
+      });
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      allTargetBoxes.forEach(b => {
+        minX = Math.min(minX, b.x);
+        minY = Math.min(minY, b.y);
+        maxX = Math.max(maxX, b.x + b.w);
+        maxY = Math.max(maxY, b.y + b.h);
+      });
+
+      const vW = viewportRef.value?.getBoundingClientRect()?.width || window.innerWidth;
+      const vH = viewportRef.value?.getBoundingClientRect()?.height || window.innerHeight;
+      const pad = 100;
+      const totalW = Math.max(100, maxX - minX);
+      const totalH = Math.max(100, maxY - minY);
+      const overallScale = Math.min((vW - pad * 2) / totalW, (vH - pad * 2) / totalH);
+
+      // 如果全局容纳后缩放 >= 0.65 (视觉仍极度清晰)，则直接全景纳入
+      if (overallScale >= 0.65) {
+        fitNodesInView(allTargetBoxes, 0.95, 0.65);
+      } else {
+        // 如果多窗口跨度过大 (导致全景缩放 < 0.65 变蚂蚁)，绝不粗暴缩太小！
+        // 智能平滑落焦至“当前活跃创作中心”所属集群，保持 0.88~0.92 的最佳视觉清晰度
+        const activeWin = activeConfigNode.value || creationWindows.value[0];
+        const activeClusterNodeIds = windowClusterTargetMap.get(activeWin.id) || [];
+        const activeClusterBoxes = allTargetBoxes.filter(b => {
+          return b.x === activeWin.x || activeClusterNodeIds.some(id => {
+            const pos = targetsMap.get(id);
+            return pos && pos.x === b.x && pos.y === b.y;
+          });
+        });
+
+        if (activeClusterBoxes.length > 0) {
+          fitNodesInView(activeClusterBoxes, 0.92, 0.75);
+        } else {
+          locateToWindowCluster(activeWin.id);
+        }
+      }
+    }
   });
+
+  const toastMessage = isSingleWin 
+    ? '已完成四周自然错落排版！乱中有序，高度适宜，脉络连线清晰灵动' 
+    : `已完成 ${creationWindows.value.length} 个创作集群就地紧凑排版！各集群互不重叠，脉络清晰`;
+  emit('show-toast', { message: toastMessage, type: 'success' });
 };
 
 // 监听新的生成图片，推送到画布中呈现 (支持定位到触发该生成的创作窗口，并支持一次生成多张各连一根发光线)
@@ -2923,6 +3224,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onWindowBlur);
+  window.addEventListener('click', handleGlobalLocateClick);
 
   // 监听创作中心实际 DOM 尺寸变化，保证连线永远贴紧真实边缘
   if (configNodeEl.value) {
@@ -3012,6 +3314,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup', onKeyUp);
   window.removeEventListener('blur', onWindowBlur);
+  window.removeEventListener('click', handleGlobalLocateClick);
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('mouseup', onMouseUp);
   window.removeEventListener('mousemove', onPipeMouseMove);
@@ -4552,6 +4855,246 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
+}
+
+/* ==========================================================================
+   多窗口定位与巡航跳板样式 (Multi-Window Locate Navigator)
+   ========================================================================== */
+.locate-nav-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dock-icon-btn.locate-btn {
+  position: relative;
+}
+
+.locate-cycle-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: #ffffff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.45);
+  pointer-events: none;
+}
+
+.locate-dropdown-toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 2px 3px 2px 1px;
+  margin-left: -2px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.18s ease;
+}
+
+.locate-dropdown-toggle-btn:hover,
+.locate-dropdown-toggle-btn.open {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="light"] .locate-dropdown-toggle-btn:hover,
+.light-theme .locate-dropdown-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.locate-dropdown-toggle-btn svg {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.locate-dropdown-toggle-btn.open svg {
+  transform: rotate(180deg);
+}
+
+/* 浮动毛玻璃多窗口导航跳板菜单面板 (向上弹出) */
+.locate-nav-menu {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 250px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(18, 22, 37, 0.94);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.15);
+  z-index: 1000;
+  cursor: default;
+  user-select: none;
+}
+
+:root[data-theme="light"] .locate-nav-menu,
+.light-theme .locate-nav-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.16), 0 0 16px rgba(99, 102, 241, 0.08);
+}
+
+.locate-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+}
+
+:root[data-theme="light"] .locate-menu-header,
+.light-theme .locate-menu-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+.menu-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-indigo, #818cf8);
+}
+
+.menu-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.menu-sub {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.locate-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.locate-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.locate-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(1px);
+}
+
+:root[data-theme="light"] .locate-menu-item:hover,
+.light-theme .locate-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.locate-menu-item.active {
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+:root[data-theme="light"] .locate-menu-item.active,
+.light-theme .locate-menu-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.locate-menu-item .menu-item-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+}
+
+.locate-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.locate-dot.active {
+  background: #a855f7;
+  box-shadow: 0 0 7px #a855f7;
+}
+
+.locate-menu-item .item-name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-focus-pill {
+  font-size: 0.6rem;
+  padding: 0px 4px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.25);
+  color: #c084fc;
+  font-weight: 700;
+}
+
+.locate-menu-item .item-stats,
+.locate-menu-item .item-badge {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.overview-item {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.overview-item:hover {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.locate-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 3px 2px;
+}
+
+:root[data-theme="light"] .locate-menu-divider,
+.light-theme .locate-menu-divider {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 弹出动画 */
+.locate-pop-enter-active,
+.locate-pop-leave-active {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.locate-pop-enter-from,
+.locate-pop-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px) scale(0.96);
 }
 
 /* 6. 连线渲染双模引擎微胶囊 (彻底修复原版文字溢出遮盖 Bug) */
