@@ -473,52 +473,81 @@
       </div>
     </div>
 
-    <!-- 底部悬浮控制坞 (Floating Dock Toolbar - 现代化毛玻璃极简架构) -->
+    <!-- 底部悬浮控制坞 (Floating Command Dock - Figma UI3 & Linear 质感高阶架构) -->
     <div class="floating-dock-wrapper" @mousedown.stop>
       <div class="dock-panel modern-dock">
-        <!-- 1. 人性化快捷提示徽标 (无需切换模式，直观指引) -->
-        <div class="dock-hint-capsule" title="交互指引：长按鼠标右键拖动画布 · 左键选择/长按拖动卡片 · 滚轮缩放">
-          <svg class="hint-mouse-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="5" y="2" width="14" height="20" rx="7"></rect>
-            <path d="M12 6v4"></path>
-          </svg>
-          <span class="hint-text">右键拖动画布 · 左键移动卡片</span>
+        <!-- 1. 轻量化指引小徽章 (极简紧凑，悬停展现专业交互指引，为窗口选择释放宝贵横向空间) -->
+        <div class="dock-group hint-control-group">
+          <div class="dock-hint-badge" title="鼠标操作指引">
+            <svg class="hint-mouse-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="2" width="14" height="20" rx="7"></rect>
+              <path d="M12 6v4"></path>
+            </svg>
+            <span class="hint-label">漫游</span>
+            <!-- 悬浮微型快捷面板 -->
+            <div class="hint-tooltip-card glass-panel">
+              <div class="tooltip-row"><span class="tooltip-key">右键/中键</span><span>按住拖动画布</span></div>
+              <div class="tooltip-row"><span class="tooltip-key">左键长按</span><span>移动卡片或窗口</span></div>
+              <div class="tooltip-row"><span class="tooltip-key">滚轮</span><span>无级平滑缩放</span></div>
+            </div>
+          </div>
         </div>
 
         <div class="dock-divider"></div>
 
-        <!-- 2. 创作窗口管理组 -->
-        <div class="dock-group window-control-group">
+        <!-- 2. 创作窗口分段标签工作台 (Segmented Window Switcher - 一等公民核心操作区) -->
+        <div class="dock-group window-tabs-control-group">
+          <!-- 窗口标签分段滑轨 -->
+          <div class="window-tabs-scroll-track" ref="windowTabsTrackRef">
+            <div 
+              v-for="(win, idx) in creationWindows"
+              :key="win.id"
+              class="win-tab-btn"
+              :class="{ 
+                'active': activeConfigId === win.id,
+                'generating': win.isGenerating
+              }"
+              @click="handleSelectWindowTab(win.id)"
+              :title="`切换并聚焦至 [${win.name || '创作中心 #' + (idx + 1)}] · ${getClusterStatsText(win.id)}`"
+            >
+              <!-- 状态呼吸点或旋转 Spinner -->
+              <span v-if="win.isGenerating" class="win-tab-spinner"></span>
+              <span v-else class="win-tab-dot" :class="{ 'has-refs': win.refImages && win.refImages.length > 0 }"></span>
+
+              <!-- 窗口名称 -->
+              <span class="win-tab-title">{{ win.name || `中心 #${idx + 1}` }}</span>
+
+              <!-- 产物/参考微型标签 -->
+              <span v-if="getWindowTabCount(win.id) > 0" class="win-tab-counter" :title="`${getWindowTabCount(win.id)} 张衍生图`">
+                {{ getWindowTabCount(win.id) }}
+              </span>
+
+              <!-- 关闭按钮 (多于 1 个窗口时显示) -->
+              <button 
+                v-if="creationWindows.length > 1"
+                class="win-tab-close-icon"
+                @click.stop="closeCreationWindow(win.id)"
+                :title="`关闭 ${win.name}`"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 追加新窗口快捷按钮 -->
           <button 
-            class="dock-action-btn add-window-btn" 
-            @click="addCreationWindow" 
-            title="添加新创作窗口 (支持多窗口并行独立生图，不设数量上限)"
+            class="add-window-pill-btn"
+            @click="addCreationWindow"
+            title="添加新创作窗口 (支持多窗口独立并行生图)"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="12" y1="8" x2="12" y2="16"></line>
-              <line x1="8" y1="12" x2="16" y2="12"></line>
-            </svg>
-            <span class="btn-text">创作窗口</span>
-            <span class="window-count-badge" v-if="creationWindows.length > 1">{{ creationWindows.length }}</span>
-          </button>
-          
-          <button 
-            v-if="creationWindows.length > 1"
-            class="dock-icon-btn remove-window-btn" 
-            @click="closeCreationWindow(activeConfigId)" 
-            title="关闭当前获得焦点的创作窗口"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span class="add-win-label" v-if="creationWindows.length === 1">新建窗口</span>
           </button>
         </div>
 
         <div class="dock-divider"></div>
 
-        <!-- 3. 视口与缩放控制组 -->
+        <!-- 3. 视口漫游与聚焦控制组 -->
         <div class="dock-group zoom-control-group">
           <button class="dock-icon-btn" @click="zoomOut" title="缩小画布">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -529,76 +558,31 @@
           <button class="dock-icon-btn" @click="zoomIn" title="放大画布">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </button>
-          <!-- 智能多窗口定位与巡航跳板复合组件 -->
-          <div class="locate-nav-wrapper" ref="locateNavRef">
-            <button 
-              class="dock-icon-btn locate-btn" 
-              :class="{ 'has-multiple': creationWindows.length > 1, 'menu-open': isLocateMenuOpen }"
-              @click="handleLocateClick" 
-              :title="creationWindows.length > 1 ? `智能定位巡航 (点击循环切换窗口集群与全览，可点击小箭头展开直达跳板)` : '重置视角并居中创作配置中心'"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="3" r="3"></circle></svg>
-              <span v-if="creationWindows.length > 1" class="locate-cycle-badge">{{ currentLocateIndexName }}</span>
-            </button>
-            <button 
-              v-if="creationWindows.length > 1"
-              class="locate-dropdown-toggle-btn"
-              :class="{ 'open': isLocateMenuOpen }"
-              @click.stop="isLocateMenuOpen = !isLocateMenuOpen"
-              title="展开多窗口定位跳板"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
 
-            <!-- 浮动毛玻璃多窗口导航跳板菜单 (向上浮出) -->
-            <Transition name="locate-pop">
-              <div v-if="isLocateMenuOpen" class="locate-nav-menu glass-panel" @click.stop>
-                <div class="locate-menu-header">
-                  <div class="menu-header-left">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-                    <span class="menu-title">视角定位与巡航</span>
-                  </div>
-                  <span class="menu-sub">{{ creationWindows.length }} 个创作集群</span>
-                </div>
-                <div class="locate-menu-list">
-                  <!-- 全景全览选项 -->
-                  <div 
-                    class="locate-menu-item overview-item"
-                    @click="locateToOverview"
-                  >
-                    <div class="menu-item-left">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                      <span class="item-name">全景鸟瞰全览 (Fit All)</span>
-                    </div>
-                    <span class="item-badge">全部纳入</span>
-                  </div>
-                  <div class="locate-menu-divider"></div>
-                  <!-- 各个窗口集群选项 -->
-                  <div 
-                    v-for="(win, idx) in creationWindows"
-                    :key="win.id"
-                    class="locate-menu-item"
-                    :class="{ 'active': activeConfigId === win.id }"
-                    @click="locateToWindowCluster(win.id)"
-                  >
-                    <div class="menu-item-left">
-                      <span class="locate-dot" :class="{ 'active': activeConfigId === win.id }"></span>
-                      <span class="item-name">{{ win.name || `创作中心 #${idx + 1}` }}</span>
-                      <span v-if="activeConfigId === win.id" class="item-focus-pill">当前焦点</span>
-                    </div>
-                    <span class="item-stats">{{ getClusterStatsText(win.id) }}</span>
-                  </div>
-                </div>
-              </div>
-            </Transition>
-          </div>
+          <!-- 聚焦当前激活窗口集群 (明确宽适的定位按钮) -->
+          <button 
+            class="dock-icon-btn focus-active-btn" 
+            @click="locateToWindowCluster(activeConfigId)" 
+            title="平滑重置视角并对焦当前创作窗口"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+          </button>
+
+          <!-- 全景鸟瞰全览按钮 (Fit All) -->
+          <button 
+            class="dock-icon-btn overview-all-btn" 
+            @click="locateToOverview" 
+            title="全景鸟瞰全览 (自适应呈现画布全部窗口与卡片)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          </button>
         </div>
 
         <div class="dock-divider"></div>
 
         <!-- 4. 排版整理、引擎与维护工具组 -->
         <div class="dock-group tools-control-group">
-          <!-- 连线渲染双模引擎切换 (解决原版溢出重叠 Bug，重构为微型双态胶囊) -->
+          <!-- 连线渲染双模引擎切换 -->
           <button 
             class="engine-toggle-btn" 
             :class="renderEngine" 
@@ -610,7 +594,7 @@
           </button>
 
           <!-- 自动整齐排布节点 (智能星座环绕对齐) -->
-          <button class="dock-icon-btn" @click="autoOrganizeNodes" title="一键智能排版 (围绕创作中心环绕对齐)">
+          <button class="dock-icon-btn" @click="autoOrganizeNodes" title="一键智能排版 (多窗口就地紧凑错落排布，互不重叠)">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           </button>
 
@@ -2151,6 +2135,17 @@ const getClusterStatsText = (winId) => {
   if (refCount > 0 && genCount > 0) return `${refCount}参考 · ${genCount}生成`;
   if (refCount > 0) return `${refCount}张参考图`;
   return `${genCount}张生成图`;
+};
+
+// 获取特定窗口产生的图片数量 (用于底部窗口 Tab 微标)
+const getWindowTabCount = (winId) => {
+  return imageNodes.value.filter(n => n.sourceWindowId === winId).length;
+};
+
+// 点击底部悬浮条窗口 Tab：切换焦点并丝滑定位该集群
+const handleSelectWindowTab = (winId) => {
+  activeConfigId.value = winId;
+  locateToWindowCluster(winId);
 };
 
 // 视角平滑对焦至指定创作窗口集群 (保持 0.85~0.92 的舒适清晰比例，绝不缩成小点)
@@ -4684,23 +4679,31 @@ onUnmounted(() => {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-/* 1. 人性化快捷交互提示胶囊 */
-.dock-hint-capsule {
-  display: flex;
+/* 1. 轻量化指引小徽章 (极简紧凑，悬停展现专业交互指引，为窗口选择释放宝贵横向空间) */
+.dock-hint-badge {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 9999px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 9999px;
-  cursor: default;
-  transition: all 0.2s ease;
+  cursor: help;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
 }
 
-:root[data-theme="light"] .dock-hint-capsule,
-.light-theme .dock-hint-capsule {
+:root[data-theme="light"] .dock-hint-badge,
+.light-theme .dock-hint-badge {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.06);
+}
+
+.dock-hint-badge:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(99, 102, 241, 0.35);
 }
 
 .hint-mouse-icon {
@@ -4709,12 +4712,73 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.hint-text {
-  font-size: 0.73rem;
-  font-weight: 500;
+.hint-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+}
+
+/* 漫游指引悬浮卡片 */
+.hint-tooltip-card {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 0;
+  min-width: 190px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(18, 22, 37, 0.95);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transform-origin: bottom left;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1000;
+}
+
+:root[data-theme="light"] .hint-tooltip-card,
+.light-theme .hint-tooltip-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12);
+}
+
+.dock-hint-badge:hover .hint-tooltip-card {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.71rem;
   color: var(--text-secondary);
   white-space: nowrap;
-  letter-spacing: 0.2px;
+}
+
+.tooltip-key {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent-indigo, #818cf8);
+}
+
+:root[data-theme="light"] .tooltip-key,
+.light-theme .tooltip-key {
+  background: rgba(0, 0, 0, 0.05);
+  color: #4f46e5;
 }
 
 /* 2. 组间高质感微渐变竖线分隔符 */
@@ -4722,6 +4786,7 @@ onUnmounted(() => {
   width: 1px;
   height: 16px;
   background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.16) 20%, rgba(255, 255, 255, 0.16) 80%, transparent);
+  flex-shrink: 0;
 }
 
 :root[data-theme="light"] .dock-divider,
@@ -4733,6 +4798,209 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ==========================================================================
+   2. 核心创作窗口分段标签工作台 (Segmented Window Switcher)
+   ========================================================================== */
+.window-tabs-control-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.window-tabs-scroll-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  max-width: 440px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.window-tabs-scroll-track::-webkit-scrollbar {
+  display: none;
+}
+
+:root[data-theme="light"] .window-tabs-scroll-track,
+.light-theme .window-tabs-scroll-track {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* 窗口分段标签项 */
+.win-tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.73rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.win-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+:root[data-theme="light"] .win-tab-btn:hover,
+.light-theme .win-tab-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1e293b;
+}
+
+/* 激活选中态标签 (晶体渐变浮动高光) */
+.win-tab-btn.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.32) 0%, rgba(168, 85, 247, 0.32) 100%);
+  border-color: rgba(168, 85, 247, 0.55);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(168, 85, 247, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+:root[data-theme="light"] .win-tab-btn.active,
+.light-theme .win-tab-btn.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16) 0%, rgba(168, 85, 247, 0.18) 100%);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #4f46e5;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.12);
+}
+
+.win-tab-title {
+  letter-spacing: -0.1px;
+}
+
+/* 状态微点 */
+.win-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.win-tab-btn.active .win-tab-dot {
+  background: #c084fc;
+  box-shadow: 0 0 6px #c084fc;
+}
+
+.win-tab-dot.has-refs {
+  background: #38bdf8 !important;
+  box-shadow: 0 0 6px #38bdf8 !important;
+}
+
+/* 生成中旋转微圈 */
+.win-tab-spinner {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #34d399;
+  border-radius: 50%;
+  animation: tabSpin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tabSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 衍生卡片微型计数徽标 */
+.win-tab-counter {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0 5px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.win-tab-btn.active .win-tab-counter {
+  background: rgba(168, 85, 247, 0.35);
+  color: #ffffff;
+}
+
+/* 关闭标签微型图标 */
+.win-tab-close-icon {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 1px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: all 0.16s ease;
+}
+
+.win-tab-btn:hover .win-tab-close-icon {
+  opacity: 0.85;
+}
+
+.win-tab-close-icon:hover {
+  opacity: 1 !important;
+  background: rgba(244, 63, 94, 0.25);
+  color: #fb7185;
+}
+
+/* ＋ 新建窗口按钮 */
+.add-window-pill-btn {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 9999px;
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px dashed rgba(168, 85, 247, 0.45);
+  color: #c084fc;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+}
+
+.add-window-pill-btn:hover {
+  background: rgba(168, 85, 247, 0.26);
+  border-style: solid;
+  border-color: rgba(168, 85, 247, 0.75);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.25);
+}
+
+.add-window-pill-btn:active {
+  transform: scale(0.95);
+}
+
+:root[data-theme="light"] .add-window-pill-btn,
+.light-theme .add-window-pill-btn {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #7c3aed;
 }
 
 /* 3. 通用图标按钮 */
@@ -4765,68 +5033,28 @@ onUnmounted(() => {
   transform: scale(0.92);
 }
 
+/* 专属聚焦与全览按钮高亮 */
+.dock-icon-btn.focus-active-btn {
+  color: var(--accent-indigo, #818cf8);
+}
+
+.dock-icon-btn.focus-active-btn:hover {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
+}
+
+.dock-icon-btn.overview-all-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
 .dock-icon-btn.danger-btn:hover {
   background: rgba(244, 63, 94, 0.15);
   color: #fb7185;
 }
 
-/* 4. “＋ 创作窗口” 晶体微光按钮 (告别厚重生硬大色块，融入毛玻璃体系) */
-.dock-action-btn.add-window-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 9999px;
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(168, 85, 247, 0.22) 100%);
-  color: #f1f5f9;
-  font-size: 0.74rem;
-  font-weight: 600;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.18);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-:root[data-theme="light"] .dock-action-btn.add-window-btn,
-.light-theme .dock-action-btn.add-window-btn {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(168, 85, 247, 0.14) 100%);
-  border-color: rgba(168, 85, 247, 0.4);
-  color: #4f46e5;
-  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.1);
-}
-
-.dock-action-btn.add-window-btn:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.38) 0%, rgba(168, 85, 247, 0.38) 100%);
-  border-color: rgba(168, 85, 247, 0.6);
-  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.35);
-  transform: translateY(-1px);
-}
-
-.dock-action-btn.add-window-btn:active {
-  transform: scale(0.96);
-}
-
-.window-count-badge {
-  font-size: 0.65rem;
-  padding: 1px 5px;
-  border-radius: 9999px;
-  background: rgba(168, 85, 247, 0.45);
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.remove-window-btn {
-  color: #f43f5e !important;
-}
-
-.remove-window-btn:hover {
-  background: rgba(244, 63, 94, 0.15) !important;
-}
-
-/* 5. 缩放控制组 */
+/* 4. 缩放控制组 */
 .zoom-indicator-btn {
   background: transparent;
   border: none;
@@ -4855,246 +5083,6 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
-}
-
-/* ==========================================================================
-   多窗口定位与巡航跳板样式 (Multi-Window Locate Navigator)
-   ========================================================================== */
-.locate-nav-wrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.dock-icon-btn.locate-btn {
-  position: relative;
-}
-
-.locate-cycle-badge {
-  position: absolute;
-  top: -4px;
-  right: -5px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, #6366f1, #a855f7);
-  color: #ffffff;
-  font-size: 0.6rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.45);
-  pointer-events: none;
-}
-
-.locate-dropdown-toggle-btn {
-  background: transparent;
-  border: none;
-  padding: 2px 3px 2px 1px;
-  margin-left: -2px;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: all 0.18s ease;
-}
-
-.locate-dropdown-toggle-btn:hover,
-.locate-dropdown-toggle-btn.open {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
-}
-
-:root[data-theme="light"] .locate-dropdown-toggle-btn:hover,
-.light-theme .locate-dropdown-toggle-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.locate-dropdown-toggle-btn svg {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.locate-dropdown-toggle-btn.open svg {
-  transform: rotate(180deg);
-}
-
-/* 浮动毛玻璃多窗口导航跳板菜单面板 (向上弹出) */
-.locate-nav-menu {
-  position: absolute;
-  bottom: calc(100% + 14px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 250px;
-  padding: 10px;
-  border-radius: 14px;
-  background: rgba(18, 22, 37, 0.94);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.15);
-  z-index: 1000;
-  cursor: default;
-  user-select: none;
-}
-
-:root[data-theme="light"] .locate-nav-menu,
-.light-theme .locate-nav-menu {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 0, 0, 0.09);
-  box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.16), 0 0 16px rgba(99, 102, 241, 0.08);
-}
-
-.locate-menu-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 6px;
-}
-
-:root[data-theme="light"] .locate-menu-header,
-.light-theme .locate-menu-header {
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-}
-
-.menu-header-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent-indigo, #818cf8);
-}
-
-.menu-title {
-  font-size: 0.76rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.menu-sub {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-}
-
-.locate-menu-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.locate-menu-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 9px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.16s ease;
-}
-
-.locate-menu-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateX(1px);
-}
-
-:root[data-theme="light"] .locate-menu-item:hover,
-.light-theme .locate-menu-item:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.locate-menu-item.active {
-  background: rgba(99, 102, 241, 0.18);
-  border: 1px solid rgba(99, 102, 241, 0.35);
-}
-
-:root[data-theme="light"] .locate-menu-item.active,
-.light-theme .locate-menu-item.active {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.25);
-}
-
-.locate-menu-item .menu-item-left {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
-}
-
-.locate-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  flex-shrink: 0;
-  transition: all 0.2s ease;
-}
-
-.locate-dot.active {
-  background: #a855f7;
-  box-shadow: 0 0 7px #a855f7;
-}
-
-.locate-menu-item .item-name {
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.item-focus-pill {
-  font-size: 0.6rem;
-  padding: 0px 4px;
-  border-radius: 4px;
-  background: rgba(168, 85, 247, 0.25);
-  color: #c084fc;
-  font-weight: 700;
-}
-
-.locate-menu-item .item-stats,
-.locate-menu-item .item-badge {
-  font-size: 0.64rem;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  margin-left: 6px;
-}
-
-.overview-item {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.overview-item:hover {
-  background: rgba(99, 102, 241, 0.12);
-}
-
-.locate-menu-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.06);
-  margin: 3px 2px;
-}
-
-:root[data-theme="light"] .locate-menu-divider,
-.light-theme .locate-menu-divider {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-/* 弹出动画 */
-.locate-pop-enter-active,
-.locate-pop-leave-active {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.locate-pop-enter-from,
-.locate-pop-leave-to {
-  opacity: 0;
-  transform: translate(-50%, 8px) scale(0.96);
 }
 
 /* 6. 连线渲染双模引擎微胶囊 (彻底修复原版文字溢出遮盖 Bug) */
